@@ -1,0 +1,43 @@
+# ---- Node / Frontend ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+.env
+.env.*
+!.env.example
+
+# ---- Kotlin / Gradle / Backend ----
+.gradle/
+build/
+backend/build/
+backend/.gradle/
+backend/.kotlin/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+*.log
+
+# ---- IDE ----
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+
+# ---- Runtime state (extensions, profiles, user library) — never versioned ----
+data/
+backend/data/
+*.cs3.jar
+
+# ---- TS incremental build cache ----
+*.tsbuildinfo
+
+# ---- Local development / AI-agent files (kept out of the public repo) ----
+.claude/
+CLAUDE.md
+HANDOVER.md
+DEPLOY.md
+docs/

@@ -1,0 +1,28 @@
+<configuration>
+    <!-- Readable text (default, dev): includes the callId from the MDC to correlate lines -->
+    <appender name="TEXT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{28} {callId=%X{callId:-}} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Structured JSON (prod): one JSON line per event, MDC (callId) included -->
+    <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdcKeyName>callId</includeMdcKeyName>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <if condition='"json".equalsIgnoreCase(property("LOG_FORMAT"))'>
+            <then>
+                <appender-ref ref="JSON"/>
+            </then>
+            <else>
+                <appender-ref ref="TEXT"/>
+            </else>
+        </if>
+    </root>
+
+    <logger name="io.netty" level="WARN"/>
+</configuration>

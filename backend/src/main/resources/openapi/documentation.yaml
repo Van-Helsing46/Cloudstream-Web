@@ -1,0 +1,611 @@
+openapi: 3.0.3
+info:
+  title: Cloudstream Web API
+  version: "0.0.1"
+  description: >
+    Cloudstream Web backend API (self-hosted port of Cloudstream). Exposes content
+    providers running on the JVM, extension management from repositories, a streaming proxy
+    that injects the headers required by the sources, and the user library
+    (watchlist/history), separated per profile (Netflix-style multi-user: `X-Profile-Id`
+    header on the `/library/*` routes). Session-cookie authentication (if `AUTH_PASSWORD`
+    is set server-side).
+servers:
+  - url: /api/v1
+
+tags:
+  - name: auth
+  - name: providers
+  - name: extensions
+  - name: profiles
+  - name: library
+  - name: stream
+
+paths:
+  /auth/status:
+    get:
+      tags: [auth]
+      summary: Authentication status
+      responses:
+        "200":
+          description: Whether auth is required and whether the current request is authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  authRequired: { type: boolean }
+                  authenticated: { type: boolean }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Password login; sets the session cookie
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string }
+      responses:
+        "200": { description: Authenticated (cookie set) }
+        "401": { description: Wrong password }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Logout; invalidates the session cookie
+      responses:
+        "200": { description: Logged out }
+
+  /providers:
+    get:
+      tags: [providers]
+      summary: List of active providers
+      responses:
+        "200":
+          description: Active providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/ProviderInfo" }
+  /search:
+    get:
+      tags: [providers]
+      summary: Aggregated search (per-provider fault-tolerant)
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string }
+        - name: provider
+          in: query
+          required: false
+          description: Restricts to a single provider (by id)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Results and, if any, per-provider errors
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+  /providers/{providerId}/home:
+    get:
+      tags: [providers]
+      summary: The provider's main page (sections)
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+      responses:
+        "200":
+          description: Home sections
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HomeResponse" }
+        "404": { description: Unknown provider }
+  /providers/{providerId}/detail:
+    get:
+      tags: [providers]
+      summary: Detail of a content item
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: id
+          in: query
+          required: true
+          description: Opaque content id (usually a URL)
+          schema: { type: string }
+      responses:
+        "200":
+          description: Detail
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MediaDetail" }
+        "404": { description: Unknown provider }
+  /providers/{providerId}/links:
+    get:
+      tags: [providers]
+      summary: Resolves the streaming links of a content/episode
+      parameters:
+        - name: providerId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: id
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Resolved links
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/StreamLink" }
+
+  /extensions:
+    get:
+      tags: [extensions]
+      summary: Aggregated plugin catalog of the registered repositories
+      responses:
+        "200":
+          description: Available plugins
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/AvailablePlugin" }
+  /extensions/repos:
+    get:
+      tags: [extensions]
+      summary: Registered repositories
+      responses:
+        "200": { description: Repository list }
+    post:
+      tags: [extensions]
+      summary: Registers a repository (repo.json or plugins.json URL)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string }
+      responses:
+        "201": { description: Registered }
+        "400": { description: Invalid repository }
+    delete:
+      tags: [extensions]
+      summary: Removes a repository
+      parameters:
+        - name: url
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Removed }
+        "404": { description: Not registered }
+  /extensions/installed:
+    get:
+      tags: [extensions]
+      summary: Installed extensions
+      responses:
+        "200": { description: Installed list }
+  /extensions/{internalName}/install:
+    post:
+      tags: [extensions]
+      summary: Installs an extension (downloads and verifies the hash)
+      parameters:
+        - name: internalName
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "201": { description: Installed (with runtime activation state) }
+        "404": { description: Plugin not in the repositories }
+        "502": { description: Download failed }
+  /extensions/{internalName}/update:
+    post:
+      tags: [extensions]
+      summary: Updates if the repository has a newer version
+      parameters:
+        - name: internalName
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Updated or already up to date }
+        "404": { description: Not installed / not in the repositories }
+  /extensions/{internalName}:
+    delete:
+      tags: [extensions]
+      summary: Uninstalls an extension
+      parameters:
+        - name: internalName
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Uninstalled }
+        "404": { description: Not installed }
+
+  /profiles:
+    get:
+      tags: [profiles]
+      summary: Profile list
+      responses:
+        "200":
+          description: Existing profiles
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Profile" }
+    post:
+      tags: [profiles]
+      summary: Creates a profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateProfileRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "400": { description: Invalid profile (e.g. empty or duplicate name) }
+  /profiles/{id}:
+    put:
+      tags: [profiles]
+      summary: Updates a profile (name and/or color)
+      description: >
+        Partial update: omitted fields keep their current value.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateProfileRequest" }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "400": { description: Invalid profile (e.g. empty name) }
+        "404": { description: Unknown profile }
+    delete:
+      tags: [profiles]
+      summary: Deletes a profile (and its library)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Deleted }
+        "404": { description: Unknown profile }
+
+  /library/watchlist:
+    get:
+      tags: [library]
+      summary: The profile's watchlist
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      responses:
+        "200": { description: Watchlist items }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+    post:
+      tags: [library]
+      summary: Adds an item to the watchlist
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AddWatchlistRequest" }
+      responses:
+        "201": { description: Added }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+    delete:
+      tags: [library]
+      summary: Removes from the watchlist
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+        - name: providerId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: mediaId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Removed }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+        "404": { description: Not in watchlist }
+  /library/history:
+    get:
+      tags: [library]
+      summary: History (or only the "continue watching" entries)
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+        - name: continue
+          in: query
+          required: false
+          description: >
+            If true, a single entry per series/movie (the most recent), finished
+            content (>90%) excluded
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: History entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HistoryEntry" }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+  /library/progress:
+    get:
+      tags: [library]
+      summary: Saved position for an episode (resume)
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+        - name: providerId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: episodeId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Progress entry
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HistoryEntry" }
+        "204": { description: No saved position }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+    post:
+      tags: [library]
+      summary: Records/updates the resume position
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProgressRequest" }
+      responses:
+        "200": { description: Recorded }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+  /library/media-progress:
+    get:
+      tags: [library]
+      summary: All progress entries of a series/movie (per episode)
+      description: >
+        Used by the detail page for the "Resume SxEy" button and the per-episode
+        progress bars.
+      parameters:
+        - $ref: "#/components/parameters/ProfileId"
+        - name: providerId
+          in: query
+          required: true
+          schema: { type: string }
+        - name: mediaId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Progress entries (most recent first)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/HistoryEntry" }
+        "400": { description: Missing X-Profile-Id header or unknown profile }
+
+  /stream:
+    get:
+      tags: [stream]
+      summary: Streaming proxy — injects headers and rewrites HLS manifests
+      description: >
+        Fetches `url` injecting the `headers` (from the StreamLink) towards the source. If the
+        content is an HLS manifest, its URIs are rewritten towards this same proxy. Supports
+        Range requests.
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: Absolute source URL (http/https, public host)
+          schema: { type: string }
+        - name: headers
+          in: query
+          required: false
+          description: URL-encoded JSON of headers to inject
+          schema: { type: string }
+      responses:
+        "200": { description: Body (rewritten manifest or stream) }
+        "206": { description: Partial content (Range) }
+        "400": { description: Invalid or disallowed URL (SSRF) }
+        "502": { description: The source answered with an error }
+
+components:
+  parameters:
+    ProfileId:
+      name: X-Profile-Id
+      in: header
+      required: true
+      description: Id of the profile whose library must be used (see `/profiles`)
+      schema: { type: string }
+  schemas:
+    MediaType:
+      type: string
+      enum: [MOVIE, TV_SERIES, ANIME, LIVE, OTHER]
+    ProviderInfo:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        language: { type: string, nullable: true }
+        supportedTypes:
+          type: array
+          items: { $ref: "#/components/schemas/MediaType" }
+        hasMainPage: { type: boolean }
+    SearchItem:
+      type: object
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/MediaType" }
+        posterUrl: { type: string, nullable: true }
+        year: { type: integer, nullable: true }
+    SearchResponse:
+      type: object
+      properties:
+        query: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/SearchItem" }
+        errors:
+          type: object
+          additionalProperties: { type: string }
+    HomeSection:
+      type: object
+      properties:
+        title: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SearchItem" }
+        isHorizontal: { type: boolean }
+    HomeResponse:
+      type: object
+      properties:
+        providerId: { type: string }
+        page: { type: integer }
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/HomeSection" }
+    Episode:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string, nullable: true }
+        season: { type: integer, nullable: true }
+        episode: { type: integer, nullable: true }
+        posterUrl: { type: string, nullable: true }
+    MediaDetail:
+      type: object
+      properties:
+        id: { type: string }
+        providerId: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/MediaType" }
+        plot: { type: string, nullable: true }
+        posterUrl: { type: string, nullable: true }
+        year: { type: integer, nullable: true }
+        episodes:
+          type: array
+          items: { $ref: "#/components/schemas/Episode" }
+    StreamLink:
+      type: object
+      properties:
+        url: { type: string }
+        quality: { type: string, nullable: true }
+        isM3u8: { type: boolean }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+    AvailablePlugin:
+      type: object
+      properties:
+        internalName: { type: string }
+        name: { type: string }
+        version: { type: integer }
+        status: { type: integer }
+        description: { type: string, nullable: true }
+        language: { type: string, nullable: true }
+        tvTypes:
+          type: array
+          items: { type: string }
+        iconUrl: { type: string, nullable: true }
+        repositoryUrl: { type: string, nullable: true }
+        installedVersion: { type: integer, nullable: true }
+        runtimeSupported: { type: boolean }
+    AddWatchlistRequest:
+      type: object
+      properties:
+        providerId: { type: string }
+        mediaId: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/MediaType" }
+        posterUrl: { type: string, nullable: true }
+        year: { type: integer, nullable: true }
+    ProgressRequest:
+      type: object
+      properties:
+        providerId: { type: string }
+        mediaId: { type: string }
+        episodeId: { type: string }
+        title: { type: string }
+        episodeName: { type: string, nullable: true }
+        season: { type: integer, nullable: true }
+        episode: { type: integer, nullable: true }
+        posterUrl: { type: string, nullable: true }
+        positionSeconds: { type: number }
+        durationSeconds: { type: number, nullable: true }
+    HistoryEntry:
+      type: object
+      description: >
+        History/resume entry. The position is per single episode (`episodeId`);
+        for movies episodeId = mediaId.
+      properties:
+        providerId: { type: string }
+        mediaId: { type: string }
+        episodeId: { type: string }
+        title: { type: string }
+        episodeName: { type: string, nullable: true }
+        season: { type: integer, nullable: true }
+        episode: { type: integer, nullable: true }
+        posterUrl: { type: string, nullable: true }
+        positionSeconds: { type: number }
+        durationSeconds: { type: number, nullable: true }
+        updatedAt: { type: string, description: ISO-8601 }
+    Profile:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        color: { type: string, description: "Avatar color in the picker (e.g. #7c9cff)" }
+        createdAt: { type: string, description: ISO-8601 }
+    CreateProfileRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        color: { type: string, nullable: true, description: Assigned automatically when absent }
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name: { type: string, nullable: true, description: Omit to keep the current name }
+        color: { type: string, nullable: true, description: Omit to keep the current color }

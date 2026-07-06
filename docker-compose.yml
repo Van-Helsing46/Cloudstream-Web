@@ -1,0 +1,20 @@
+# Cloudstream Web — self-hosted deploy. Usage: `docker compose up -d --build`.
+# Variables are read from a .env file next to this one (see backend/.env.example).
+services:
+  cloudstream-web:
+    build: .
+    container_name: cloudstream-web
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      # Set AUTH_PASSWORD in .env to protect the instance.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      AUTH_SECRET: ${AUTH_SECRET:-cloudstream-web-default-secret-change-me}
+      SEARCH_TIMEOUT_MS: ${SEARCH_TIMEOUT_MS:-15000}
+    volumes:
+      # Persists installed extensions and the user library (survives redeploys).
+      - cloudstream-web-data:/data
+    restart: unless-stopped
+
+volumes:
+  cloudstream-web-data:

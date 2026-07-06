@@ -1,0 +1,99 @@
+package com.cloudstreamweb.extensions
+
+import kotlinx.serialization.Serializable
+
+/**
+ * Models of the Cloudstream repository format.
+ *
+ * A repository can be reached in two forms:
+ * - `repo.json` — object with `pluginLists`: URLs pointing to one or more `plugins.json`
+ * - `plugins.json` — directly the array of plugin manifests
+ * The `ExtensionManager` accepts both.
+ */
+
+/** Upstream `repo.json`. */
+@Serializable
+data class RepoManifest(
+    val name: String,
+    val description: String? = null,
+    val manifestVersion: Int? = null,
+    val pluginLists: List<String> = emptyList(),
+)
+
+/** One entry of an upstream `plugins.json` (unmapped fields are ignored while parsing). */
+@Serializable
+data class PluginManifest(
+    val url: String,                       // URL of the .cs3
+    val name: String,
+    val internalName: String,
+    val version: Int = 0,
+    val status: Int = 1,                   // 0=down, 1=ok, 2=slow, 3=beta (Cloudstream convention)
+    val description: String? = null,
+    val authors: List<String> = emptyList(),
+    val repositoryUrl: String? = null,
+    val language: String? = null,
+    val tvTypes: List<String> = emptyList(),
+    val iconUrl: String? = null,
+    val apiVersion: Int? = null,
+    val fileSize: Long? = null,
+    val fileHash: String? = null,          // "sha256-<hex>"
+)
+
+/** Repository registered by the user (persisted). */
+@Serializable
+data class RepositoryRef(
+    val url: String,                       // URL as provided (repo.json or plugins.json)
+    val name: String,
+    val pluginLists: List<String>,
+)
+
+/** Installed extension (persisted). */
+@Serializable
+data class InstalledExtension(
+    val internalName: String,
+    val name: String,
+    val version: Int,
+    val cs3Url: String,
+    val repositoryUrl: String? = null,
+    val language: String? = null,
+    val installedAt: String,               // ISO-8601
+)
+
+/** Overall ExtensionManager state, serialized to `state.json`. */
+@Serializable
+data class ExtensionsState(
+    val repositories: List<RepositoryRef> = emptyList(),
+    val installed: List<InstalledExtension> = emptyList(),
+)
+
+// ---- API response DTOs ----
+
+/** Plugin as seen by the client: manifest + local state. */
+@Serializable
+data class AvailablePlugin(
+    val internalName: String,
+    val name: String,
+    val version: Int,
+    val status: Int,
+    val description: String? = null,
+    val language: String? = null,
+    val tvTypes: List<String> = emptyList(),
+    val iconUrl: String? = null,
+    val repositoryUrl: String? = null,
+    /** Locally installed version, if any. */
+    val installedVersion: Int? = null,
+    /**
+     * true if the runtime can execute this extension (recompiled and bundled).
+     * false = installable but not executable until it gets recompiled for the JVM.
+     */
+    val runtimeSupported: Boolean,
+)
+
+/** Install/update outcome, with the provider activation state. */
+@Serializable
+data class InstallResult(
+    val extension: InstalledExtension,
+    /** true if the provider has been registered and can be queried via /api/v1. */
+    val runtimeActive: Boolean,
+    val message: String? = null,
+)

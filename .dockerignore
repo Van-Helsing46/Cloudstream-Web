@@ -1,0 +1,21 @@
+# Build/artefatti (ricostruiti nell'immagine)
+backend/build/
+backend/.gradle/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Dati runtime e stato locale (non vanno nell'immagine)
+data/
+backend/data/
+
+# VCS / IDE / OS
+.git/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Scratch/doc non necessari al build
+*.tsbuildinfo
