@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   type ReactNode,
 } from "react";
@@ -9,7 +10,12 @@ import { api, getProfileId, setProfileId } from "../api/client";
 import type { Profile } from "../types";
 import { useLanguage, useT } from "../i18n";
 import { useToast } from "../components/Toast";
+import { ProfileAvatar, profileAvatarStyle } from "../components/ProfileAvatar";
+import { PRESET_AVATARS, presetAvatarSrc } from "../lib/avatars";
 import { profileGradient } from "../lib/colors";
+
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_TYPES = ["image/png", "image/jpeg", "image/webp"];
 
 interface ProfileContextValue {
   profile: Profile;
@@ -48,7 +54,17 @@ export function ProfileGate({ children }: { children: ReactNode }) {
   const [editorTarget, setEditorTarget] = useState<EditorTarget | null>(null);
   const [editorName, setEditorName] = useState("");
   const [editorColor, setEditorColor] = useState(PALETTE[0]);
+  const [editorAvatar, setEditorAvatar] = useState<string | null>(null);
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null);
+  const [pendingAvatarPreview, setPendingAvatarPreview] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Revokes the object URL used to preview a not-yet-uploaded avatar file.
+  useEffect(() => {
+    return () => {
+      if (pendingAvatarPreview) URL.revokeObjectURL(pendingAvatarPreview);
+    };
+  }, [pendingAvatarPreview]);
 
   const profiles = useQuery({ queryKey: ["profiles"], queryFn: api.profiles.list });
 
@@ -69,21 +85,48 @@ export function ProfileGate({ children }: { children: ReactNode }) {
     setEditorTarget({ profile });
     setEditorName(profile?.name ?? "");
     setEditorColor(profile?.color ?? PALETTE[0]);
+    setEditorAvatar(profile?.avatar ?? null);
+    setPendingAvatarFile(null);
+    setPendingAvatarPreview(null);
     setConfirmDelete(false);
   }
 
   function closeEditor() {
     setEditorTarget(null);
+    setPendingAvatarFile(null);
+    setPendingAvatarPreview(null);
     setConfirmDelete(false);
+  }
+
+  function pickAvatarFile(file: File | undefined) {
+    if (!file) return;
+    if (!AVATAR_TYPES.includes(file.type)) {
+      show(t("profile.avatarInvalidType"));
+      return;
+    }
+    if (file.size > AVATAR_MAX_BYTES) {
+      show(t("profile.avatarTooLarge"));
+      return;
+    }
+    setEditorAvatar("upload");
+    setPendingAvatarFile(file);
+    setPendingAvatarPreview(URL.createObjectURL(file));
   }
 
   const saveMutation = useMutation({
     mutationFn: async () => {
       const name = editorName.trim();
       if (!name) throw new Error(t("profile.nameRequired"));
-      return editorTarget?.profile
-        ? api.profiles.update(editorTarget.profile.id, { name, color: editorColor })
-        : api.profiles.create(name, editorColor);
+      const clearingUpload = editorAvatar === null && editorTarget?.profile?.avatar === "upload";
+      // Uploads and file deletions are handled by their own endpoints; a plain avatar
+      // string change (or leaving it untouched) goes through the regular profile update.
+      const avatar = clearingUpload ? editorTarget!.profile!.avatar! : (editorAvatar ?? "");
+      const profile = editorTarget?.profile
+        ? await api.profiles.update(editorTarget.profile.id, { name, color: editorColor, avatar })
+        : await api.profiles.create(name, editorColor, avatar || undefined);
+      if (pendingAvatarFile) return api.profiles.uploadAvatar(profile.id, pendingAvatarFile);
+      if (clearingUpload) return api.profiles.deleteAvatar(profile.id);
+      return profile;
     },
     onSuccess: async (profile) => {
       const wasNew = !editorTarget?.profile;
@@ -115,6 +158,15 @@ export function ProfileGate({ children }: { children: ReactNode }) {
     deleteMutation.mutate(id);
   }
 
+  const editorPreviewSrc =
+    pendingAvatarPreview ??
+    (editorAvatar
+      ? (presetAvatarSrc(editorAvatar) ??
+        (editorAvatar === "upload" && editorTarget?.profile
+          ? api.profiles.avatarUrl(editorTarget.profile.id)
+          : undefined))
+      : undefined);
+
   if (profiles.isLoading) return <div className="page muted">{t("profile.loading")}</div>;
   if (profiles.isError) return <div className="page error">{String(profiles.error)}</div>;
 
@@ -142,8 +194,8 @@ export function ProfileGate({ children }: { children: ReactNode }) {
                 className="profile-tile"
                 onClick={() => (manage ? openEditor(p) : select(p))}
               >
-                <span className="profile-avatar" style={{ background: profileGradient(p.color) }}>
-                  {p.name.slice(0, 1).toUpperCase()}
+                <span className="profile-avatar" style={profileAvatarStyle(p)}>
+                  <ProfileAvatar profile={p} />
                   {manage && <span className="profile-edit-badge">✎</span>}
                 </span>
                 <span className="profile-name">{p.name}</span>
@@ -185,8 +237,15 @@ export function ProfileGate({ children }: { children: ReactNode }) {
             <div className="modal-card" onClick={(e) => e.stopPropagation()}>
               <h2>{editorTarget.profile ? t("profile.editProfile") : t("profile.newProfile")}</h2>
               <div className="profile-editor-preview">
-                <span className="profile-avatar" style={{ background: profileGradient(editorColor) }}>
-                  {(editorName[0] ?? "?").toUpperCase()}
+                <span
+                  className="profile-avatar"
+                  style={editorPreviewSrc ? {} : { background: profileGradient(editorColor) }}
+                >
+                  {editorPreviewSrc ? (
+                    <img className="profile-avatar-img" src={editorPreviewSrc} alt="" />
+                  ) : (
+                    (editorName[0] ?? "?").toUpperCase()
+                  )}
                 </span>
                 <input
                   value={editorName}
@@ -209,6 +268,53 @@ export function ProfileGate({ children }: { children: ReactNode }) {
                     />
                   ))}
                 </div>
+              </div>
+              <div className="profile-editor-avatars">
+                <span className="muted profile-editor-palette-label">{t("profile.avatar")}</span>
+                <div className="profile-editor-avatar-grid">
+                  <button
+                    type="button"
+                    className={
+                      editorAvatar === null
+                        ? "profile-avatar-none-btn profile-avatar-none-btn-active"
+                        : "profile-avatar-none-btn"
+                    }
+                    onClick={() => {
+                      setEditorAvatar(null);
+                      setPendingAvatarFile(null);
+                      setPendingAvatarPreview(null);
+                    }}
+                    title={t("profile.avatarNone")}
+                  >
+                    {t("profile.avatarNone")}
+                  </button>
+                  {PRESET_AVATARS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      className={
+                        editorAvatar === `preset:${preset.id}`
+                          ? "profile-avatar-preset profile-avatar-preset-active"
+                          : "profile-avatar-preset"
+                      }
+                      onClick={() => {
+                        setEditorAvatar(`preset:${preset.id}`);
+                        setPendingAvatarFile(null);
+                        setPendingAvatarPreview(null);
+                      }}
+                    >
+                      <img src={preset.src} alt="" />
+                    </button>
+                  ))}
+                </div>
+                <label className="profile-avatar-upload">
+                  {t("profile.avatarUpload")}
+                  <input
+                    type="file"
+                    accept={AVATAR_TYPES.join(",")}
+                    onChange={(e) => pickAvatarFile(e.target.files?.[0])}
+                  />
+                </label>
               </div>
               <div className="profile-editor-actions">
                 {editorTarget.profile && list.length > 1 && (
