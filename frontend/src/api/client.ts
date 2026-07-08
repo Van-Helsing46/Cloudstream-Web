@@ -63,6 +63,20 @@ function profileHeaders(extra?: Record<string, string>): Record<string, string> 
   return { ...(extra ?? {}), ...(id ? { "X-Profile-Id": id } : {}) };
 }
 
+// ---- Avatar cache-busting ----
+// The uploaded avatar is always served from the same URL, so after a re-upload the
+// browser would keep showing the cached image unless the URL changes.
+
+const AVATAR_VERSION_PREFIX = "cs_avatar_v_";
+
+function avatarVersion(id: string): string {
+  return localStorage.getItem(AVATAR_VERSION_PREFIX + id) ?? "0";
+}
+
+function bumpAvatarVersion(id: string) {
+  localStorage.setItem(AVATAR_VERSION_PREFIX + id, String(Date.now()));
+}
+
 export const api = {
   auth: {
     status: () =>
@@ -135,11 +149,11 @@ export const api = {
   // ---- Profiles (multi-user) ----
   profiles: {
     list: () => getJson<Profile[]>("/profiles"),
-    create: (name: string, color?: string) =>
+    create: (name: string, color?: string, avatar?: string) =>
       request<Profile>("/profiles", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, color }),
+        body: JSON.stringify({ name, color, avatar }),
       }),
     update: (id: string, req: UpdateProfileRequest) =>
       request<Profile>(`/profiles/${id}`, {
@@ -149,6 +163,19 @@ export const api = {
       }),
     remove: (id: string) =>
       request<{ deleted: string }>(`/profiles/${id}`, { method: "DELETE" }),
+    uploadAvatar: async (id: string, file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      const profile = await request<Profile>(`/profiles/${id}/avatar`, { method: "POST", body: form });
+      bumpAvatarVersion(id);
+      return profile;
+    },
+    deleteAvatar: async (id: string) => {
+      const profile = await request<Profile>(`/profiles/${id}/avatar`, { method: "DELETE" });
+      bumpAvatarVersion(id);
+      return profile;
+    },
+    avatarUrl: (id: string) => `${BASE}/profiles/${id}/avatar?v=${avatarVersion(id)}`,
   },
 
   // ---- User library, per-profile via X-Profile-Id ----

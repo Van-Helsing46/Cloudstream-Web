@@ -148,10 +148,13 @@ export interface Profile {
   name: string;
   color: string;
   createdAt: string;
+  /** null = initial+color fallback, "preset:<id>" = built-in avatar, "upload" = uploaded image. */
+  avatar?: string | null;
 }
 
-/** Partial update: omitted fields keep their current value. */
+/** Partial update: omitted fields keep their current value; empty string clears `avatar`. */
 export interface UpdateProfileRequest {
   name?: string;
   color?: string;
+  avatar?: string;
 }

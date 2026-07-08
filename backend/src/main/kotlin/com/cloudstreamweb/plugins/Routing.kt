@@ -13,12 +13,17 @@ import com.cloudstreamweb.library.UpdateProfileRequest
 import com.cloudstreamweb.provider.ProviderRegistry
 import com.cloudstreamweb.proxy.streamProxy
 import io.ktor.client.HttpClient
+import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.CookieEncoding
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.content.PartData
+import io.ktor.http.content.forEachPart
 import io.ktor.server.application.Application
 import io.ktor.server.request.receive
+import io.ktor.server.request.receiveMultipart
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -27,17 +32,40 @@ import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 import io.ktor.server.routing.routing
 import io.ktor.server.util.getOrFail
+import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
+import java.io.ByteArrayOutputStream
 
 @Serializable
 data class AddRepositoryRequest(val url: String)
 
 @Serializable
 data class LoginRequest(val password: String)
+
+private const val MAX_AVATAR_BYTES = 2 * 1024 * 1024
+
+private val AVATAR_EXTENSIONS = mapOf(
+    ContentType.Image.PNG to "png",
+    ContentType.Image.JPEG to "jpg",
+    ContentType("image", "webp") to "webp",
+)
+
+/** Reads a channel into memory, aborting (returns null) as soon as it would exceed [maxBytes]. */
+private suspend fun readUpTo(channel: io.ktor.utils.io.ByteReadChannel, maxBytes: Int): ByteArray? {
+    val out = ByteArrayOutputStream()
+    val chunk = ByteArray(8192)
+    while (true) {
+        val read = channel.readAvailable(chunk)
+        if (read == -1) break
+        out.write(chunk, 0, read)
+        if (out.size() > maxBytes) return null
+    }
+    return out.toByteArray()
+}
 
 fun Application.configureRouting(
     registry: ProviderRegistry,
@@ -266,6 +294,56 @@ fun Application.configureRouting(
                     val id = call.parameters.getOrFail("id")
                     if (profiles.delete(id)) call.respond(mapOf("deleted" to id))
                     else call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown profile"))
+                }
+
+                post("/{id}/avatar") {
+                    val id = call.parameters.getOrFail("id")
+                    if (!profiles.exists(id)) {
+                        return@post call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown profile"))
+                    }
+                    var extension: String? = null
+                    var bytes: ByteArray? = null
+                    var tooLarge = false
+                    call.receiveMultipart().forEachPart { part ->
+                        if (part is PartData.FileItem && bytes == null) {
+                            val ext = AVATAR_EXTENSIONS[part.contentType]
+                            if (ext != null) {
+                                extension = ext
+                                bytes = readUpTo(part.provider(), MAX_AVATAR_BYTES)
+                                if (bytes == null) tooLarge = true
+                            }
+                        }
+                        part.dispose()
+                    }
+                    when {
+                        tooLarge -> call.respond(HttpStatusCode.BadRequest, mapOf("error" to "avatar exceeds 2 MB"))
+                        extension == null || bytes == null ->
+                            call.respond(
+                                HttpStatusCode.BadRequest,
+                                mapOf("error" to "expected an image/png, image/jpeg or image/webp file part"),
+                            )
+                        else -> {
+                            val updated = profiles.saveAvatar(id, bytes!!, extension!!)
+                            if (updated == null) call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown profile"))
+                            else call.respond(updated)
+                        }
+                    }
+                }
+
+                get("/{id}/avatar") {
+                    val id = call.parameters.getOrFail("id")
+                    val file = profiles.avatarFile(id)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "no avatar"))
+                    val contentType = AVATAR_EXTENSIONS.entries.find { (_, ext) -> file.name.endsWith(".$ext") }?.key
+                        ?: ContentType.Application.OctetStream
+                    call.respondBytes(file.readBytes(), contentType)
+                }
+
+                delete("/{id}/avatar") {
+                    val id = call.parameters.getOrFail("id")
+                    val updated = profiles.clearAvatar(id)
+                    if (updated == null) call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown profile"))
+                    else call.respond(updated)
                 }
             }
 
