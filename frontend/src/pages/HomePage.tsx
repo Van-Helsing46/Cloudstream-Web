@@ -31,6 +31,22 @@ function buildSections(responses: HomeResponse[], providerName: (id: string) => 
   );
 }
 
+/** Matches section titles like "Top 10" / "Top 10 titoli di oggi" regardless of provider wording. */
+function isTop10Title(title: string): boolean {
+  return /top\s*10/i.test(title);
+}
+
+/**
+ * Picks the section that feeds the special "Top 10" rail (a provider's own Top 10 section
+ * if one exists, otherwise the first section) and the remaining sections to render as normal
+ * rails, excluding the Top 10 source and any other section that also looks like a Top 10 list.
+ */
+function selectHomeSections(sections: HomeSection[]): { top10Section: HomeSection | undefined; rails: HomeSection[] } {
+  const top10Section = sections.find((s) => isTop10Title(s.title)) ?? sections[0];
+  const rails = sections.slice(1).filter((s) => s !== top10Section && !isTop10Title(s.title));
+  return { top10Section, rails };
+}
+
 /** Home: hero for the top title, source chips, continue watching, Top 10, and section rails. */
 export function HomePage() {
   const t = useT();
@@ -87,6 +103,7 @@ export function HomePage() {
 
   const sections = buildSections(responses, providerName);
   const heroItem: SearchItem | undefined = sections[0]?.items[0];
+  const { top10Section, rails } = selectHomeSections(sections);
 
   return (
     <>
@@ -130,18 +147,18 @@ export function HomePage() {
           </section>
         )}
 
-        {sections.length > 0 && sections[0].items.length > 0 && (
+        {top10Section && top10Section.items.length > 0 && (
           <section>
             <h2 className="rail-title">{t("home.top10")}</h2>
             <div className="top10-rail">
-              {sections[0].items.slice(0, 10).map((item, i) => (
+              {top10Section.items.slice(0, 10).map((item, i) => (
                 <Top10Card key={`${item.providerId}:${item.id}-${i}`} item={item} rank={i + 1} />
               ))}
             </div>
           </section>
         )}
 
-        {sections.slice(1).map((section, i) => (
+        {rails.map((section, i) => (
           <SectionRail key={`${section.title}-${i}`} section={section} />
         ))}
       </div>
