@@ -102,7 +102,7 @@ REST under `/api/v1`: providers (`/search`, `/providers/{id}/{home,detail,links}
 
 ## Security and scope
 
-Built for **personal LAN use** (e.g. a container on a home server), not for public exposure: auth is a single instance password, and the proxy ships a basic SSRF guard (loopback/private IP blocking) tuned for that scenario. If you expose it to the Internet, put a TLS reverse proxy in front and consider additional hardening.
+Built for **personal LAN use** (e.g. a container on a home server), not for public exposure: auth is a single instance password, and the proxy ships a basic SSRF guard (loopback/private IP blocking) tuned for that scenario. Extensions are third-party code executed in the backend, so installs are screened and container hardening matters — see **[SECURITY.md](SECURITY.md)** for the threat model and the recommended Docker hardening. If you expose it to the Internet, put a TLS reverse proxy in front.
 
 ## Credits and license
 
