@@ -35,15 +35,19 @@ Everything the Android app did on-device (running the extension, scraping, openi
 
 ## How extensions work here
 
-The runtime **does not execute `.cs3` files directly** (they are Android DEX). The approach, validated in an early spike, is to recompile the extension's **Kotlin source** against Cloudstream's official JVM library (`com.github.recloudstream.cloudstream:library-jvm`, via JitPack) and instantiate it as a plain JVM class, adapted to the internal domain model.
+A browser can't run `.cs3` files (Android DEX bytecode), so the **backend** runs them. When you add a repository and install an extension from the UI, the backend downloads and sha256-verifies the `.cs3`, then makes it executable on the JVM through a **layered runtime** that tries, in order:
 
-This means that:
+1. **Bundled** — a curated, in-tree recompiled version, if one exists (the public repo ships none).
+2. **Recompile from source** — fetches the extension's public Kotlin source from its repository (**GitHub / GitLab / Gitea·Forgejo**, including source kept on a side branch) and compiles it *in-process* against Cloudstream's official JVM library (`com.github.recloudstream.cloudstream:library-jvm`, via JitPack) plus a few compatibility shims. Widest coverage, and it sidesteps ABI drift baked into the shipped bytecode.
+3. **DEX→JVM conversion** — converts the `.cs3` bytecode to a JVM jar and loads it directly, as a fallback when source isn't available.
 
-- the public repository **contains no extensions**: `extensions/bundled/` is empty and at runtime there is no provider until you add one;
-- to make an extension executable you copy its source into `bundled/`, register its factory in `BundledExtensionRuntime` and rebuild — step-by-step guide in [`backend/src/main/kotlin/com/cloudstreamweb/extensions/README.md`](backend/src/main/kotlin/com/cloudstreamweb/extensions/README.md);
-- installing from a repository via the UI downloads and versions the `.cs3` (metadata, hash, updates), but an extension is only *executable* if it is also present in the recompiled runtime (`runtimeSupported`).
+Whatever the path, the provider (`MainAPI`) is instantiated and adapted to the internal domain model. Android-only concerns are handled server-side or by shims: the plugin loader and settings UI are skipped, and `CloudflareKiller`/`WebView` have server-side stand-ins. Loaded code is screened first — extensions using process/exit/native APIs are refused (see **[SECURITY.md](SECURITY.md)**).
 
-On-demand source compilation (or DEX→JAR conversion) is a possible evolution.
+Caveats, honestly:
+
+- the public repository **contains no extensions** (`extensions/bundled/` is empty) and there is no provider until you add a repo and install one;
+- **most scraper extensions work**, but some don't run unmodified — providers whose constructor needs configuration that only the Android plugin supplied (e.g. multi-source IPTV), or that use Cloudstream *app* internals not present in `library-jvm` (account/sync). Those install but stay inactive (the UI tells you);
+- the recompile path needs the extension's **source to be public** (the Cloudstream convention). The manual in-tree bundling route still exists for special cases — see [`backend/src/main/kotlin/com/cloudstreamweb/extensions/README.md`](backend/src/main/kotlin/com/cloudstreamweb/extensions/README.md).
 
 ## Repository layout
 
@@ -68,7 +72,7 @@ npm install
 npm run dev
 ```
 
-On first launch the app is empty: the Home page points you to **Extensions**. To get actual content you need to bundle an extension (see above).
+On first launch the app is empty: the Home page points you to **Extensions**. To get content, open **Extensions**, add a repository (a Cloudstream `repo.json`/`plugins.json` URL) and install a provider — the backend makes it executable automatically (see above).
 
 ## Deploy (Docker)
 
