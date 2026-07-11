@@ -2,7 +2,10 @@ package com.cloudstreamweb
 
 import com.cloudstreamweb.config.AppConfig
 import com.cloudstreamweb.extensions.BundledExtensionRuntime
+import com.cloudstreamweb.extensions.CompositeExtensionRuntime
+import com.cloudstreamweb.extensions.DynamicExtensionRuntime
 import com.cloudstreamweb.extensions.ExtensionManager
+import com.cloudstreamweb.extensions.RecompilingExtensionRuntime
 import com.cloudstreamweb.library.LibraryService
 import com.cloudstreamweb.library.ProfileStore
 import com.cloudstreamweb.plugins.configureAuth
@@ -35,10 +38,24 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
     // Shared client: extension downloads + streaming proxy (no global request
     // timeout: streams are long-lived).
     val httpClient = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp)
+    val extensionsStateDir = File(config.dataDir, "extensions-state")
+    // Order by reliability: bundled (curated) → recompiled-from-source (Strada B automated, max
+    // coverage) → dynamic DEX→JAR (Strada A, fast fallback when no source is available).
+    val runtime = CompositeExtensionRuntime(
+        BundledExtensionRuntime(),
+        RecompilingExtensionRuntime(
+            workDir = File(extensionsStateDir, "recompiled"),
+            tmdbApiKey = System.getenv("TMDB_API") ?: "",
+        ),
+        DynamicExtensionRuntime(
+            cs3Dir = File(extensionsStateDir, "cs3"),
+            jarCacheDir = File(extensionsStateDir, "dynamic-jars"),
+        ),
+    )
     val extensionManager = ExtensionManager(
         registry = registry,
-        runtime = BundledExtensionRuntime(),
-        stateDir = File(config.dataDir, "extensions-state"),
+        runtime = runtime,
+        stateDir = extensionsStateDir,
         http = httpClient,
     )
     extensionManager.activateInstalled()

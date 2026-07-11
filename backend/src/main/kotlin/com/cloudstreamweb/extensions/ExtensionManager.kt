@@ -90,7 +90,9 @@ class ExtensionManager(
                     iconUrl = m.iconUrl,
                     repositoryUrl = m.repositoryUrl,
                     installedVersion = installedByName[m.internalName]?.version,
-                    runtimeSupported = m.internalName in runtime.supported,
+                    // Executable if a runtime already knows it, or if a runtime will attempt any
+                    // extension on demand (dynamic DEX / recompile-from-source).
+                    runtimeSupported = m.internalName in runtime.supported || runtime.attemptsAnyExtension,
                 )
             }
     }
@@ -119,6 +121,7 @@ class ExtensionManager(
         val entry = state.installed.firstOrNull { it.internalName == internalName } ?: return false
         activeProviders.remove(internalName)?.let(registry::unregister)
         cs3File(entry.internalName).delete()
+        runtime.cleanup(entry.internalName) // drop the runtime's cached build artifacts
         state = state.copy(installed = state.installed.filter { it.internalName != internalName })
         save()
         true
@@ -126,7 +129,7 @@ class ExtensionManager(
 
     /** On startup: reactivates the providers of installed extensions the runtime supports. */
     fun activateInstalled() {
-        state.installed.forEach { tryActivate(it.internalName) }
+        state.installed.forEach { tryActivate(it) }
     }
 
     // ---- Internals ----
@@ -153,20 +156,20 @@ class ExtensionManager(
             save()
         }
 
-        val active = tryActivate(entry.internalName)
+        val active = tryActivate(entry)
         return InstallResult(
             extension = entry,
             runtimeActive = active,
             message = if (active) null else
-                "Installed, but the JVM runtime does not (yet) have a recompiled version of this extension",
+                "Installed, but the JVM runtime could not execute this extension (no source to recompile and the .cs3 was not runnable)",
         )
     }
 
-    private fun tryActivate(internalName: String): Boolean {
-        if (internalName in activeProviders) return true
-        val provider = runtime.instantiate(internalName) ?: return false
+    private fun tryActivate(ext: InstalledExtension): Boolean {
+        if (ext.internalName in activeProviders) return true
+        val provider = runtime.instantiate(ext) ?: return false
         registry.register(provider)
-        activeProviders[internalName] = provider.info.id
+        activeProviders[ext.internalName] = provider.info.id
         return true
     }
 
@@ -191,8 +194,7 @@ class ExtensionManager(
         }
     }
 
-    private fun cs3File(internalName: String) =
-        File(cs3Dir, internalName.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".cs3")
+    private fun cs3File(internalName: String) = File(cs3Dir, cs3FileName(internalName))
 
     private fun save() {
         stateDir.mkdirs()
