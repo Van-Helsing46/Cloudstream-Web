@@ -61,6 +61,9 @@ dependencies {
     }
     // r8's runtime dependency, pulled transitively via r8 before it was excluded above.
     implementation("com.google.code.gson:gson:2.10.1")
+    // Embedded Kotlin compiler: recompile extensions from source (Strada B automated) for maximum
+    // coverage — on the classpath so the out-of-process compiler is available to the runtime.
+    implementation("org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.21")
     // dex-translator uses these ASM modules at runtime but its POM only declares asm-core.
     // asm-util pulls asm-tree + asm-analysis; asm-commons pulls asm-tree — together they cover them.
     implementation("org.ow2.asm:asm-commons:9.5")
@@ -81,4 +84,10 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+}
+
+// The embedded Kotlin compiler pushes the fat jar past 65535 entries → needs the zip64 extension.
+// ShadowJar extends Zip, so set it without importing the shadow plugin type.
+tasks.named("shadowJar") {
+    (this as org.gradle.api.tasks.bundling.Zip).isZip64 = true
 }

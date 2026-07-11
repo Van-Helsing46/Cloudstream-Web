@@ -17,8 +17,8 @@ interface ExtensionRuntime {
     /** `internalName`s (as in the repository manifest) of the executable extensions. */
     val supported: Set<String>
 
-    /** Instantiates the provider for [internalName], or null if the runtime does not support it. */
-    fun instantiate(internalName: String): Provider?
+    /** Instantiates the provider for [ext], or null if the runtime cannot execute it. */
+    fun instantiate(ext: InstalledExtension): Provider?
 }
 
 /**
@@ -40,6 +40,6 @@ class BundledExtensionRuntime : ExtensionRuntime {
 
     override val supported: Set<String> get() = factories.keys
 
-    override fun instantiate(internalName: String): Provider? =
-        factories[internalName]?.invoke()
+    override fun instantiate(ext: InstalledExtension): Provider? =
+        factories[ext.internalName]?.invoke()
 }

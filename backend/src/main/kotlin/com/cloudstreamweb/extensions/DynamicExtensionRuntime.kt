@@ -58,7 +58,8 @@ class DynamicExtensionRuntime(
             .map { it.nameWithoutExtension }
             .toSet()
 
-    override fun instantiate(internalName: String): Provider? {
+    override fun instantiate(ext: InstalledExtension): Provider? {
+        val internalName = ext.internalName
         val cs3 = File(cs3Dir, cs3FileName(internalName)).takeIf { it.isFile } ?: return null
         return runCatching { loadProvider(internalName, cs3) }
             .onFailure { log.warn("Dynamic load of '{}' failed: {}", internalName, it.toString()) }

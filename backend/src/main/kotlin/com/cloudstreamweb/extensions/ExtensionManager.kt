@@ -126,7 +126,7 @@ class ExtensionManager(
 
     /** On startup: reactivates the providers of installed extensions the runtime supports. */
     fun activateInstalled() {
-        state.installed.forEach { tryActivate(it.internalName) }
+        state.installed.forEach { tryActivate(it) }
     }
 
     // ---- Internals ----
@@ -153,20 +153,20 @@ class ExtensionManager(
             save()
         }
 
-        val active = tryActivate(entry.internalName)
+        val active = tryActivate(entry)
         return InstallResult(
             extension = entry,
             runtimeActive = active,
             message = if (active) null else
-                "Installed, but the JVM runtime does not (yet) have a recompiled version of this extension",
+                "Installed, but the JVM runtime could not execute this extension (no source to recompile and the .cs3 was not runnable)",
         )
     }
 
-    private fun tryActivate(internalName: String): Boolean {
-        if (internalName in activeProviders) return true
-        val provider = runtime.instantiate(internalName) ?: return false
+    private fun tryActivate(ext: InstalledExtension): Boolean {
+        if (ext.internalName in activeProviders) return true
+        val provider = runtime.instantiate(ext) ?: return false
         registry.register(provider)
-        activeProviders[internalName] = provider.info.id
+        activeProviders[ext.internalName] = provider.info.id
         return true
     }
 
