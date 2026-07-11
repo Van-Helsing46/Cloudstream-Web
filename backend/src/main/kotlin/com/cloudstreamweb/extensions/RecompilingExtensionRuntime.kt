@@ -78,6 +78,10 @@ class RecompilingExtensionRuntime(
             compile(sources, classesDir)
             marker.writeText(java.time.Instant.now().toString())
         }
+        // Defense-in-depth: refuse recompiled code that uses process/exit/native APIs.
+        if (!ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanClassesDir(classesDir), ext.internalName)) {
+            return null
+        }
         val loader = URLClassLoader(arrayOf(classesDir.toURI().toURL()), MainAPI::class.java.classLoader)
         val api = findMainApi(classesDir, loader)
         if (api == null) {

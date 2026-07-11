@@ -141,11 +141,13 @@ fun Application.configureRouting(
                 val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
+                // Bound the third-party provider call so a hung/misbehaving extension can't tie up
+                // the request indefinitely (same guard as search).
                 call.respond(
                     com.cloudstreamweb.domain.HomeResponse(
                         providerId = providerId,
                         page = page,
-                        sections = provider.mainPage(page),
+                        sections = withTimeout(config.providerSearchTimeoutMs) { provider.mainPage(page) },
                     ),
                 )
             }
@@ -156,7 +158,7 @@ fun Application.configureRouting(
                 val id = call.request.queryParameters.getOrFail("id")
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
-                call.respond(provider.load(id))
+                call.respond(withTimeout(config.providerSearchTimeoutMs) { provider.load(id) })
             }
 
             // Streaming link resolution
@@ -165,7 +167,7 @@ fun Application.configureRouting(
                 val id = call.request.queryParameters.getOrFail("id")
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
-                call.respond(provider.loadLinks(id))
+                call.respond(withTimeout(config.providerSearchTimeoutMs) { provider.loadLinks(id) })
             }
 
             // ---- Extension management ----

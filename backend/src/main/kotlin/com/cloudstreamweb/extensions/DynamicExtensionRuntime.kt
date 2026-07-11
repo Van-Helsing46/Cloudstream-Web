@@ -68,6 +68,8 @@ class DynamicExtensionRuntime(
 
     private fun loadProvider(internalName: String, cs3: File): Provider? {
         val jar = convertedJar(internalName, cs3)
+        // Defense-in-depth: refuse third-party bytecode that uses process/exit/native APIs.
+        if (!ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanJar(jar), internalName)) return null
         // Parent = the classloader that has library-jvm + NiceHttp + the CloudflareKiller shim.
         val loader = URLClassLoader(arrayOf(jar.toURI().toURL()), MainAPI::class.java.classLoader)
         val api = findMainApi(jar, loader)
