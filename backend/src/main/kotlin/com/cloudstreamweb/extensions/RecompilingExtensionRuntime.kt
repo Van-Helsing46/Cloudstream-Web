@@ -57,6 +57,9 @@ class RecompilingExtensionRuntime(
     // flag. Actual capability is reported by the install result.
     override val supported: Set<String> get() = emptySet()
 
+    // Recompiles any extension that has public source: worth advertising as installable.
+    override val attemptsAnyExtension: Boolean get() = true
+
     override fun instantiate(ext: InstalledExtension): Provider? {
         val repoUrl = ext.repositoryUrl?.takeIf { it.isNotBlank() } ?: return null
         return runCatching { recompileAndLoad(ext, repoUrl) }

@@ -14,8 +14,14 @@ import com.cloudstreamweb.provider.Provider
  * Android came from SharedPreferences becomes a constructor parameter.
  */
 interface ExtensionRuntime {
-    /** `internalName`s (as in the repository manifest) of the executable extensions. */
+    /** `internalName`s (as in the repository manifest) this runtime knows it can execute up front. */
     val supported: Set<String>
+
+    /**
+     * True if the runtime attempts *any* extension (converting/recompiling on demand), so success
+     * can't be known before install. Used by the catalog to still advertise it as installable.
+     */
+    val attemptsAnyExtension: Boolean get() = false
 
     /** Instantiates the provider for [ext], or null if the runtime cannot execute it. */
     fun instantiate(ext: InstalledExtension): Provider?

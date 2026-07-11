@@ -14,6 +14,9 @@ class CompositeExtensionRuntime(private val runtimes: List<ExtensionRuntime>) : 
     override val supported: Set<String>
         get() = runtimes.flatMapTo(mutableSetOf()) { it.supported }
 
+    override val attemptsAnyExtension: Boolean
+        get() = runtimes.any { it.attemptsAnyExtension }
+
     override fun instantiate(ext: InstalledExtension): Provider? =
         runtimes.firstNotNullOfOrNull { it.instantiate(ext) }
 }

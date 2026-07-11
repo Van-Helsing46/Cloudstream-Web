@@ -90,7 +90,9 @@ class ExtensionManager(
                     iconUrl = m.iconUrl,
                     repositoryUrl = m.repositoryUrl,
                     installedVersion = installedByName[m.internalName]?.version,
-                    runtimeSupported = m.internalName in runtime.supported,
+                    // Executable if a runtime already knows it, or if a runtime will attempt any
+                    // extension on demand (dynamic DEX / recompile-from-source).
+                    runtimeSupported = m.internalName in runtime.supported || runtime.attemptsAnyExtension,
                 )
             }
     }
