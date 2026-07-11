@@ -25,6 +25,9 @@ interface ExtensionRuntime {
 
     /** Instantiates the provider for [ext], or null if the runtime cannot execute it. */
     fun instantiate(ext: InstalledExtension): Provider?
+
+    /** Deletes any cached build artifacts for [internalName] (converted jars, recompiled classes). */
+    fun cleanup(internalName: String) {}
 }
 
 /**

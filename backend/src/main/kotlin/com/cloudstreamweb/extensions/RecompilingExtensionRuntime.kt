@@ -60,6 +60,14 @@ class RecompilingExtensionRuntime(
     // Recompiles any extension that has public source: worth advertising as installable.
     override val attemptsAnyExtension: Boolean get() = true
 
+    override fun cleanup(internalName: String) {
+        val name = sanitize(internalName)
+        // Remove this extension's per-version class caches and its source checkout, precisely
+        // (the `-<version>`/`-src` suffix avoids clobbering a differently-named extension).
+        val mine = Regex("^" + Regex.escape(name) + "-(\\d+|src)$")
+        workDir.listFiles { f -> f.isDirectory && mine.matches(f.name) }?.forEach { it.deleteRecursively() }
+    }
+
     override fun instantiate(ext: InstalledExtension): Provider? {
         val repoUrl = ext.repositoryUrl?.takeIf { it.isNotBlank() } ?: return null
         return runCatching { recompileAndLoad(ext, repoUrl) }
@@ -190,7 +198,9 @@ class RecompilingExtensionRuntime(
             noStdlib = true
             noReflect = true
         }
-        val exit = K2JVMCompiler().exec(collector, Services.EMPTY, args)
+        // The embedded compiler shares JVM-wide static state (intellij-core), so it is not safe to
+        // run concurrently — serialize compilations. They are infrequent (install/update only).
+        val exit = synchronized(COMPILE_LOCK) { K2JVMCompiler().exec(collector, Services.EMPTY, args) }
         check(exit.code == 0 && outDir.walkTopDown().any { it.extension == "class" }) {
             "kotlinc failed ($exit)" + if (errors.isEmpty()) "" else ":\n" + errors.take(10).joinToString("\n")
         }
@@ -222,6 +232,9 @@ class RecompilingExtensionRuntime(
 
     private fun sanitize(name: String) = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }
+
+/** Serializes in-process Kotlin compilations (the embedded compiler isn't concurrency-safe). */
+private val COMPILE_LOCK = Any()
 
 /** Prepended to each recompiled source: tolerate API drift (error-deprecations, opt-in) vs current library-jvm. */
 private const val SUPPRESS_HEADER =

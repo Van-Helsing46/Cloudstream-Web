@@ -19,4 +19,6 @@ class CompositeExtensionRuntime(private val runtimes: List<ExtensionRuntime>) : 
 
     override fun instantiate(ext: InstalledExtension): Provider? =
         runtimes.firstNotNullOfOrNull { it.instantiate(ext) }
+
+    override fun cleanup(internalName: String) = runtimes.forEach { it.cleanup(internalName) }
 }

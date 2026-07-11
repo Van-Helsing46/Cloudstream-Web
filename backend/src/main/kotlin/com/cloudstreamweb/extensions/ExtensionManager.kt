@@ -121,6 +121,7 @@ class ExtensionManager(
         val entry = state.installed.firstOrNull { it.internalName == internalName } ?: return false
         activeProviders.remove(internalName)?.let(registry::unregister)
         cs3File(entry.internalName).delete()
+        runtime.cleanup(entry.internalName) // drop the runtime's cached build artifacts
         state = state.copy(installed = state.installed.filter { it.internalName != internalName })
         save()
         true
