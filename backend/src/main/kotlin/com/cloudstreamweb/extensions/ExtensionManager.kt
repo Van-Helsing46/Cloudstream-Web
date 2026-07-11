@@ -191,8 +191,7 @@ class ExtensionManager(
         }
     }
 
-    private fun cs3File(internalName: String) =
-        File(cs3Dir, internalName.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".cs3")
+    private fun cs3File(internalName: String) = File(cs3Dir, cs3FileName(internalName))
 
     private fun save() {
         stateDir.mkdirs()
