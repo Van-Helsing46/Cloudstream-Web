@@ -300,6 +300,66 @@ paths:
       responses:
         "200": { description: Deleted }
         "404": { description: Unknown profile }
+  /profiles/{id}/avatar:
+    post:
+      tags: [profiles]
+      summary: Uploads a custom avatar image for a profile
+      description: >
+        Accepts a single image/png, image/jpeg or image/webp file part, max 2 MB. Sets
+        the profile's `avatar` to `"upload"` and replaces any previously uploaded image.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "400": { description: Invalid content type or file larger than 2 MB }
+        "404": { description: Unknown profile }
+    get:
+      tags: [profiles]
+      summary: Fetches the profile's uploaded avatar image
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Avatar image
+          content:
+            image/png: { schema: { type: string, format: binary } }
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        "404": { description: No avatar uploaded for this profile }
+    delete:
+      tags: [profiles]
+      summary: Removes the profile's uploaded avatar image
+      description: Resets `avatar` back to null (initial+color fallback).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Updated profile
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "404": { description: Unknown profile }
 
   /library/watchlist:
     get:
@@ -598,14 +658,25 @@ components:
         name: { type: string }
         color: { type: string, description: "Avatar color in the picker (e.g. #7c9cff)" }
         createdAt: { type: string, description: ISO-8601 }
+        avatar:
+          type: string
+          nullable: true
+          description: >
+            null = initial+color fallback, "preset:<id>" = built-in avatar image,
+            "upload" = user-uploaded image (fetch via GET /profiles/{id}/avatar).
     CreateProfileRequest:
       type: object
       required: [name]
       properties:
         name: { type: string }
         color: { type: string, nullable: true, description: Assigned automatically when absent }
+        avatar: { type: string, nullable: true, description: "e.g. \"preset:<id>\"" }
     UpdateProfileRequest:
       type: object
       properties:
         name: { type: string, nullable: true, description: Omit to keep the current name }
         color: { type: string, nullable: true, description: Omit to keep the current color }
+        avatar:
+          type: string
+          nullable: true
+          description: Omit to keep the current avatar; empty string clears it back to the fallback.

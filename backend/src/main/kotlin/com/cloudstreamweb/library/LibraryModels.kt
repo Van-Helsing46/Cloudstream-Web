@@ -90,17 +90,27 @@ data class Profile(
     /** Avatar color in the picker (e.g. "#7c9cff"). */
     val color: String,
     val createdAt: String,         // ISO-8601
+    /**
+     * Avatar selection: null = initial+color fallback, "preset:<id>" = built-in image
+     * (served by the frontend), "upload" = user-uploaded image (served by the backend).
+     */
+    val avatar: String? = null,
 )
 
 @Serializable
 data class CreateProfileRequest(
     val name: String,
     val color: String? = null,
+    val avatar: String? = null,
 )
 
-/** Partial update: omitted fields keep their current value. */
+/**
+ * Partial update: omitted fields keep their current value.
+ * `avatar` accepts an empty string to explicitly clear it back to the initial+color fallback.
+ */
 @Serializable
 data class UpdateProfileRequest(
     val name: String? = null,
     val color: String? = null,
+    val avatar: String? = null,
 )

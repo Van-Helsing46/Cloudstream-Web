@@ -2,7 +2,7 @@ import { Link, NavLink } from "react-router-dom";
 import { useT, type TranslationKey } from "../i18n";
 import { useProfile } from "../pages/ProfileGate";
 import { SearchBox } from "./SearchBox";
-import { profileGradient } from "../lib/colors";
+import { ProfileAvatar, profileAvatarStyle } from "./ProfileAvatar";
 
 const NAV_ITEMS: { to: string; end: boolean; key: TranslationKey }[] = [
   { to: "/", end: true, key: "nav.home" },
@@ -44,11 +44,11 @@ export function TopBar() {
 
       <button
         className="topbar-avatar"
-        style={{ background: profileGradient(profile.color) }}
+        style={profileAvatarStyle(profile)}
         onClick={switchProfile}
         title={t("nav.switchProfile")}
       >
-        {profile.name.slice(0, 1).toUpperCase()}
+        <ProfileAvatar profile={profile} />
       </button>
     </header>
   );

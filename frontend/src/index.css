@@ -753,6 +753,38 @@ a:hover { color: var(--link-hover); }
   cursor: pointer;
 }
 .profile-swatch.profile-swatch-active { border-color: var(--text); }
+.profile-avatar-img { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
+.profile-editor-avatars { display: flex; flex-direction: column; gap: 8px; }
+.profile-editor-avatar-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+.profile-avatar-preset {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-md);
+  border: 3px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  overflow: hidden;
+}
+.profile-avatar-preset img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.profile-avatar-preset.profile-avatar-preset-active { border-color: var(--text); }
+.profile-avatar-none-btn {
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.profile-avatar-none-btn.profile-avatar-none-btn-active { border-color: var(--text); color: var(--text); }
+.profile-avatar-upload {
+  align-self: flex-start;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-1);
+  cursor: pointer;
+}
+.profile-avatar-upload input { display: none; }
 .profile-editor-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; }
 .profile-delete-btn {
   margin-right: auto;
