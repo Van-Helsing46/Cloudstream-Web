@@ -88,26 +88,38 @@ class RecompilingExtensionRuntime(
         return MainApiProviderAdapter(api)
     }
 
-    // ---- Source fetching (GitHub) ----
+    // ---- Source fetching (GitHub / GitLab / Gitea·Forgejo) ----
 
     /** Downloads the extension's `.kt` sources into [destDir]; returns the written files. */
     private fun fetchSources(internalName: String, repoUrl: String, destDir: File): List<File> {
-        val (owner, repo) = parseGitHub(repoUrl) ?: return emptyList()
-        val branch = defaultBranch(owner, repo)
-        val paths = treePaths(owner, repo, branch)
-            .filter { it.startsWith("$internalName/") && it.contains("/src/main/kotlin/") && it.endsWith(".kt") }
-            // Android-only entry point + settings UI: not needed to run the provider.
-            .filterNot { it.endsWith("Plugin.kt") || it.endsWith("Settings.kt") }
+        val forge = forgeOf(repoUrl) ?: run { log.warn("Unsupported repo host: {}", repoUrl); return emptyList() }
+        // Repos publish source either on the default branch (built .cs3 on a side branch) or on a
+        // side branch (`code`/`src`) with the default branch holding only the build. Probe both.
+        val branches = (listOf(forge.defaultBranch()) + SOURCE_BRANCHES).distinct()
+        for (branch in branches) {
+            val paths = forge.kotlinPaths(branch)
+                .filter { it.startsWith("$internalName/") && it.contains("/src/main/kotlin/") }
+            if (paths.isNotEmpty()) return download(forge, branch, paths, destDir)
+        }
+        return emptyList()
+    }
 
+    private fun download(forge: GitForge, branch: String, paths: List<String>, destDir: File): List<File> {
         val written = mutableListOf<File>()
         var pkg: String? = null
         var referencesBuildConfig = false
         for (path in paths) {
-            val body = get("https://raw.githubusercontent.com/$owner/$repo/$branch/$path") ?: continue
+            val body = get(forge.rawUrl(branch, path)) ?: continue
+            // Android UI/entry-point files (Plugin/Settings/Fragment/Activity) aren't needed to run
+            // the provider and won't compile without the Android SDK — skip them by their imports.
+            if (isAndroidCoupled(body)) continue
             // Mirror the repo package path so relative refs resolve.
             val rel = path.substringAfter("/src/main/kotlin/")
             val out = File(destDir, rel).also { it.parentFile.mkdirs() }
-            out.writeText(body)
+            // The source targets whatever library-jvm API it was built against; the current one may
+            // have hardened some APIs to error-level deprecations or added opt-in requirements.
+            // Suppress those so a version-drifted-but-valid provider still compiles.
+            out.writeText(SUPPRESS_HEADER + body)
             written += out
             if (pkg == null) pkg = Regex("(?m)^package\\s+([\\w.]+)").find(body)?.groupValues?.get(1)
             if ("BuildConfig" in body) referencesBuildConfig = true
@@ -125,29 +137,26 @@ class RecompilingExtensionRuntime(
         return written
     }
 
-    private fun defaultBranch(owner: String, repo: String): String {
-        val body = get("https://api.github.com/repos/$owner/$repo") ?: return "master"
-        return Regex("\"default_branch\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.get(1) ?: "master"
+    private fun forgeOf(repoUrl: String): GitForge? {
+        val host = runCatching { URI.create(repoUrl).host }.getOrNull()?.lowercase() ?: return null
+        val m = Regex("https?://[^/]+/([^/]+)/([^/#?]+)").find(repoUrl) ?: return null
+        val owner = m.groupValues[1]
+        val repo = m.groupValues[2].removeSuffix(".git")
+        // Probing several branches means some API/tree calls legitimately 404 — fetch them quietly.
+        val quietGet: (String) -> String? = { url -> get(url, quiet = true) }
+        return when {
+            host == "github.com" -> GitHubForge(owner, repo, quietGet)
+            "gitlab" in host -> GitLabForge(host, owner, repo, quietGet)
+            else -> GiteaForge(host, owner, repo, quietGet) // Gitea/Forgejo: Disroot, Codeberg, …
+        }
     }
 
-    private fun treePaths(owner: String, repo: String, branch: String): List<String> {
-        val body = get("https://api.github.com/repos/$owner/$repo/git/trees/$branch?recursive=1") ?: return emptyList()
-        return Regex("\"path\"\\s*:\\s*\"([^\"]+\\.kt)\"").findAll(body).map { it.groupValues[1] }.toList()
-    }
-
-    private fun parseGitHub(repoUrl: String): Pair<String, String>? {
-        val m = Regex("github\\.com[/:]([^/]+)/([^/#?]+)").find(repoUrl) ?: return null
-        return m.groupValues[1] to m.groupValues[2].removeSuffix(".git")
-    }
-
-    private fun get(url: String): String? {
-        val req = HttpRequest.newBuilder(URI.create(url))
-            .header("User-Agent", "cloudstream-web")
-            .header("Accept", "application/vnd.github+json")
-            .build()
+    /** HTTP GET returning the body on 2xx, else null. [quiet] suppresses the warning (branch probes). */
+    private fun get(url: String, quiet: Boolean = false): String? {
+        val req = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "cloudstream-web").build()
         val resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString())
         return if (resp.statusCode() in 200..299) resp.body() else {
-            log.warn("GET {} -> HTTP {}", url, resp.statusCode()); null
+            if (!quiet) log.warn("GET {} -> HTTP {}", url, resp.statusCode()); null
         }
     }
 
@@ -199,5 +208,78 @@ class RecompilingExtensionRuntime(
         return null
     }
 
+    /** True if the file needs the Android SDK (androidx, or android.* other than util.Log). */
+    private fun isAndroidCoupled(body: String): Boolean =
+        Regex("(?m)^\\s*import\\s+androidx\\.").containsMatchIn(body) ||
+            Regex("(?m)^\\s*import\\s+android\\.(?!util\\.)").containsMatchIn(body)
+
     private fun sanitize(name: String) = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
+}
+
+/** Prepended to each recompiled source: tolerate API drift (error-deprecations, opt-in) vs current library-jvm. */
+private const val SUPPRESS_HEADER =
+    "@file:Suppress(\"DEPRECATION\", \"DEPRECATION_ERROR\", \"OPT_IN_USAGE\", \"OPT_IN_USAGE_ERROR\", " +
+        "\"UNCHECKED_CAST\", \"INVISIBLE_MEMBER\", \"INVISIBLE_REFERENCE\")\n"
+
+/** Branches to probe for source when the default branch only holds the built `.cs3`. */
+private val SOURCE_BRANCHES = listOf("code", "src", "master", "main", "dev")
+
+/** Matches a `.kt` file path in a git host's tree/JSON listing. */
+private val KT_PATH = Regex("\"path\"\\s*:\\s*\"([^\"]+\\.kt)\"")
+
+private val DEFAULT_BRANCH = Regex("\"default_branch\"\\s*:\\s*\"([^\"]+)\"")
+
+/** Minimal git-host abstraction: enough to list an extension's Kotlin sources and fetch them raw. */
+private interface GitForge {
+    fun defaultBranch(): String
+    /** All `.kt` file paths in [branch]'s tree (empty if the branch/tree is missing). */
+    fun kotlinPaths(branch: String): List<String>
+    fun rawUrl(branch: String, path: String): String
+}
+
+private class GitHubForge(val owner: String, val repo: String, val get: (String) -> String?) : GitForge {
+    override fun defaultBranch() =
+        get("https://api.github.com/repos/$owner/$repo")?.let { DEFAULT_BRANCH.find(it)?.groupValues?.get(1) } ?: "master"
+
+    override fun kotlinPaths(branch: String) =
+        get("https://api.github.com/repos/$owner/$repo/git/trees/$branch?recursive=1")
+            ?.let { body -> KT_PATH.findAll(body).map { it.groupValues[1] }.toList() } ?: emptyList()
+
+    override fun rawUrl(branch: String, path: String) =
+        "https://raw.githubusercontent.com/$owner/$repo/$branch/$path"
+}
+
+private class GitLabForge(val host: String, val owner: String, val repo: String, val get: (String) -> String?) : GitForge {
+    private val project = java.net.URLEncoder.encode("$owner/$repo", Charsets.UTF_8)
+
+    override fun defaultBranch() =
+        get("https://$host/api/v4/projects/$project")?.let { DEFAULT_BRANCH.find(it)?.groupValues?.get(1) } ?: "main"
+
+    override fun kotlinPaths(branch: String): List<String> {
+        val paths = mutableListOf<String>()
+        var page = 1
+        while (page <= 25) { // page cap: guards against pathological repos
+            val url = "https://$host/api/v4/projects/$project/repository/tree" +
+                "?recursive=true&per_page=100&page=$page&ref=$branch"
+            val body = get(url) ?: break
+            val entries = Regex("\"path\"").findAll(body).count()
+            paths += KT_PATH.findAll(body).map { it.groupValues[1] }
+            if (entries < 100) break // last page
+            page++
+        }
+        return paths
+    }
+
+    override fun rawUrl(branch: String, path: String) = "https://$host/$owner/$repo/-/raw/$branch/$path"
+}
+
+private class GiteaForge(val host: String, val owner: String, val repo: String, val get: (String) -> String?) : GitForge {
+    override fun defaultBranch() =
+        get("https://$host/api/v1/repos/$owner/$repo")?.let { DEFAULT_BRANCH.find(it)?.groupValues?.get(1) } ?: "main"
+
+    override fun kotlinPaths(branch: String) =
+        get("https://$host/api/v1/repos/$owner/$repo/git/trees/$branch?recursive=true&per_page=1000")
+            ?.let { body -> KT_PATH.findAll(body).map { it.groupValues[1] }.toList() } ?: emptyList()
+
+    override fun rawUrl(branch: String, path: String) = "https://$host/$owner/$repo/raw/branch/$branch/$path"
 }
