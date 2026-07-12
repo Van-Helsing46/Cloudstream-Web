@@ -1,3 +1,5 @@
+import java.util.concurrent.TimeUnit
+
 val ktor_version: String by project
 val kotlin_version: String by project
 val logback_version: String by project
@@ -50,7 +52,10 @@ dependencies {
 
     // ---- Extension runtime ----
     // Cloudstream library compiled for the JVM: provides MainAPI and the runtime graph.
-    implementation("com.github.recloudstream.cloudstream:library-jvm:master-SNAPSHOT")
+    // Pinned to a fixed commit SHA (not master-SNAPSHOT): the SNAPSHOT forces Gradle to
+    // re-contact JitPack on every resolution, and a JitPack outage/timeout there took the
+    // whole backend down (compileKotlin failing before the server could even start).
+    implementation("com.github.recloudstream.cloudstream:library-jvm:11792dd65c")
     // DEX→JAR conversion for dynamically-loaded (.cs3) extensions (Strada A).
     // R8-based (Google's real DEX toolchain, run in reverse): preserves Kotlin inline-class
     // synthetic method names (e.g. Result."constructor-impl") that dex2jar forks mangle.
@@ -84,6 +89,12 @@ dependencies {
 
 kotlin {
     jvmToolchain(21)
+}
+
+// Belt-and-suspenders for any other changing/SNAPSHOT module on the classpath: don't let a
+// flaky remote (e.g. JitPack) block the build once a version has already been resolved once.
+configurations.all {
+    resolutionStrategy.cacheChangingModulesFor(30, TimeUnit.DAYS)
 }
 
 // The embedded Kotlin compiler pushes the fat jar past 65535 entries → needs the zip64 extension.
