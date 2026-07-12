@@ -42,6 +42,8 @@ data class HomeResponse(
     val providerId: String,
     val page: Int,
     val sections: List<HomeSection>,
+    /** Set (with empty sections) if the provider call failed or timed out; the response stays 200. */
+    val error: String? = null,
 )
 
 @Serializable

@@ -65,25 +65,33 @@ class DynamicExtensionRuntime(
         File(jarCacheDir, "$internalName.jar").delete()
     }
 
-    override fun instantiate(ext: InstalledExtension): Provider? {
+    override fun instantiate(ext: InstalledExtension): ActivationOutcome {
         val internalName = ext.internalName
-        val cs3 = File(cs3Dir, cs3FileName(internalName)).takeIf { it.isFile } ?: return null
+        val cs3 = File(cs3Dir, cs3FileName(internalName)).takeIf { it.isFile }
+            ?: return ActivationOutcome.Failed("dynamic: no .cs3 on disk")
         return runCatching { loadProvider(internalName, cs3) }
             .onFailure { log.warn("Dynamic load of '{}' failed: {}", internalName, it.toString()) }
-            .getOrNull()
+            .fold(
+                onSuccess = { ActivationOutcome.Activated(it) },
+                // Some JVM errors (e.g. VerifyError on malformed converted bytecode) have a
+                // multi-line message with a full bytecode dump — keep only the first line for
+                // the API/UI; the full detail is still in the WARN log above.
+                onFailure = {
+                    val reason = it.message?.lineSequence()?.first() ?: it::class.simpleName ?: "unknown error"
+                    ActivationOutcome.Failed("dynamic: $reason")
+                },
+            )
     }
 
-    private fun loadProvider(internalName: String, cs3: File): Provider? {
+    private fun loadProvider(internalName: String, cs3: File): Provider {
         val jar = convertedJar(internalName, cs3)
         // Defense-in-depth: refuse third-party bytecode that uses process/exit/native APIs.
-        if (!ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanJar(jar), internalName)) return null
+        check(ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanJar(jar), internalName)) {
+            "blocked by security scan (prohibited API usage)"
+        }
         // Parent = the classloader that has library-jvm + NiceHttp + the CloudflareKiller shim.
         val loader = URLClassLoader(arrayOf(jar.toURI().toURL()), MainAPI::class.java.classLoader)
-        val api = findMainApi(jar, loader)
-        if (api == null) {
-            log.warn("No concrete MainAPI found in '{}'", internalName)
-            return null
-        }
+        val api = findMainApi(jar, loader) ?: error("no concrete MainAPI class found in converted jar")
         log.info("Dynamically loaded extension '{}' → provider '{}'", internalName, api.name)
         return MainApiProviderAdapter(api)
     }
@@ -103,7 +111,16 @@ class DynamicExtensionRuntime(
                 jos.closeEntry()
             }
         }
-        Files.move(tmp.toPath(), jar.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        try {
+            Files.move(tmp.toPath(), jar.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } catch (e: java.nio.file.FileSystemException) {
+            // Windows: the previous jar can still be held open by an old URLClassLoader from an
+            // earlier attempt (e.g. reinstall after a failed activation). It was converted from the
+            // same .cs3, so it is byte-equivalent — use it instead of failing the whole activation.
+            tmp.delete()
+            if (!jar.isFile) throw e
+            log.warn("Converted jar for '{}' is locked; reusing the existing one ({})", internalName, e.toString())
+        }
         return jar
     }
 

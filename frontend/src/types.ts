@@ -28,6 +28,7 @@ export interface HomeResponse {
   providerId: string;
   page: number;
   sections: HomeSection[];
+  error?: string | null;
 }
 
 export interface Episode {
@@ -84,6 +85,8 @@ export interface AvailablePlugin {
   repositoryUrl?: string | null;
   installedVersion?: number | null;
   runtimeSupported: boolean;
+  active?: boolean | null;
+  activationError?: string | null;
 }
 
 export interface InstalledExtension {
@@ -94,6 +97,8 @@ export interface InstalledExtension {
   repositoryUrl?: string | null;
   language?: string | null;
   installedAt: string;
+  active: boolean;
+  activationError?: string | null;
 }
 
 export interface InstallResult {

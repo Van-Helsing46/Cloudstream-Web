@@ -50,7 +50,9 @@ class RecompilingExtensionRuntime(
 ) : ExtensionRuntime {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val httpClient: HttpClient = HttpClient.newHttpClient()
+    private val httpClient: HttpClient = HttpClient.newBuilder()
+        .connectTimeout(java.time.Duration.ofSeconds(15))
+        .build()
 
     // Advisory only: this runtime attempts any extension that has a source repo, but it cannot
     // promise success pre-install, so it does not advertise names for the catalog `runtimeSupported`
@@ -68,37 +70,36 @@ class RecompilingExtensionRuntime(
         workDir.listFiles { f -> f.isDirectory && mine.matches(f.name) }?.forEach { it.deleteRecursively() }
     }
 
-    override fun instantiate(ext: InstalledExtension): Provider? {
-        val repoUrl = ext.repositoryUrl?.takeIf { it.isNotBlank() } ?: return null
+    override fun instantiate(ext: InstalledExtension): ActivationOutcome {
+        val repoUrl = ext.repositoryUrl?.takeIf { it.isNotBlank() }
+            ?: return ActivationOutcome.Failed("recompile: extension has no repositoryUrl")
         return runCatching { recompileAndLoad(ext, repoUrl) }
             .onFailure { log.warn("Recompile of '{}' failed: {}", ext.internalName, it.toString()) }
-            .getOrNull()
+            .fold(
+                onSuccess = { ActivationOutcome.Activated(it) },
+                onFailure = { ActivationOutcome.Failed("recompile: ${it.message ?: it::class.simpleName}") },
+            )
     }
 
-    private fun recompileAndLoad(ext: InstalledExtension, repoUrl: String): Provider? {
+    private fun recompileAndLoad(ext: InstalledExtension, repoUrl: String): Provider {
         val classesDir = File(workDir, "${sanitize(ext.internalName)}-${ext.version}")
         val marker = File(classesDir, ".compiled")
         if (!marker.isFile) {
             val srcDir = File(workDir, "${sanitize(ext.internalName)}-src").also { it.deleteRecursively(); it.mkdirs() }
             val sources = fetchSources(ext.internalName, repoUrl, srcDir)
             if (sources.isEmpty()) {
-                log.warn("No Kotlin sources found for '{}' under {}", ext.internalName, repoUrl)
-                return null
+                error("no Kotlin sources found under $repoUrl")
             }
             classesDir.deleteRecursively(); classesDir.mkdirs()
             compile(sources, classesDir)
             marker.writeText(java.time.Instant.now().toString())
         }
         // Defense-in-depth: refuse recompiled code that uses process/exit/native APIs.
-        if (!ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanClassesDir(classesDir), ext.internalName)) {
-            return null
+        check(ExtensionSecurityScanner.isSafeToLoad(ExtensionSecurityScanner.scanClassesDir(classesDir), ext.internalName)) {
+            "blocked by security scan (prohibited API usage)"
         }
         val loader = URLClassLoader(arrayOf(classesDir.toURI().toURL()), MainAPI::class.java.classLoader)
-        val api = findMainApi(classesDir, loader)
-        if (api == null) {
-            log.warn("No concrete MainAPI in recompiled '{}'", ext.internalName)
-            return null
-        }
+        val api = findMainApi(classesDir, loader) ?: error("no concrete MainAPI in recompiled classes")
         log.info("Recompiled extension '{}' from source → provider '{}'", ext.internalName, api.name)
         return MainApiProviderAdapter(api)
     }
@@ -122,7 +123,7 @@ class RecompilingExtensionRuntime(
     private fun download(forge: GitForge, branch: String, paths: List<String>, destDir: File): List<File> {
         val written = mutableListOf<File>()
         var pkg: String? = null
-        var referencesBuildConfig = false
+        val buildConfigFields = mutableSetOf<String>()
         for (path in paths) {
             val body = get(forge.rawUrl(branch, path)) ?: continue
             // Android UI/entry-point files (Plugin/Settings/Fragment/Activity) aren't needed to run
@@ -137,16 +138,20 @@ class RecompilingExtensionRuntime(
             out.writeText(SUPPRESS_HEADER + body)
             written += out
             if (pkg == null) pkg = Regex("(?m)^package\\s+([\\w.]+)").find(body)?.groupValues?.get(1)
-            if ("BuildConfig" in body) referencesBuildConfig = true
+            // Collect the actual field names used (e.g. TMDB_API, TMDB_API3 — they vary per repo);
+            // a fixed-field BuildConfig left variants unresolved and failed the whole compile.
+            Regex("\\bBuildConfig\\.(\\w+)").findAll(body).mapTo(buildConfigFields) { it.groupValues[1] }
         }
         // Synthesize BuildConfig if the sources use it (the Android build generated it from gradle).
-        if (referencesBuildConfig && pkg != null) {
+        // Every referenced field is emitted as a String constant seeded with the TMDB key — the only
+        // secret these repos inject this way; a wrong guess just degrades that provider's TMDB rails.
+        if (buildConfigFields.isNotEmpty() && pkg != null) {
             val pkgDir = File(destDir, pkg.replace('.', '/')).also { it.mkdirs() }
             val buildConfig = File(pkgDir, "BuildConfig.kt")
-            buildConfig.writeText(
-                "package $pkg\n" +
-                    "object BuildConfig { const val TMDB_API: String = \"${tmdbApiKey.replace("\"", "")}\" }\n",
-            )
+            val fields = buildConfigFields.joinToString("\n") {
+                "    const val $it: String = \"${tmdbApiKey.replace("\"", "")}\""
+            }
+            buildConfig.writeText("package $pkg\nobject BuildConfig {\n$fields\n}\n")
             written += buildConfig
         }
         return written
@@ -168,7 +173,10 @@ class RecompilingExtensionRuntime(
 
     /** HTTP GET returning the body on 2xx, else null. [quiet] suppresses the warning (branch probes). */
     private fun get(url: String, quiet: Boolean = false): String? {
-        val req = HttpRequest.newBuilder(URI.create(url)).header("User-Agent", "cloudstream-web").build()
+        val req = HttpRequest.newBuilder(URI.create(url))
+            .header("User-Agent", "cloudstream-web")
+            .timeout(java.time.Duration.ofSeconds(30))
+            .build()
         val resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString())
         return if (resp.statusCode() in 200..299) resp.body() else {
             if (!quiet) log.warn("GET {} -> HTTP {}", url, resp.statusCode()); null
@@ -225,10 +233,17 @@ class RecompilingExtensionRuntime(
         return null
     }
 
-    /** True if the file needs the Android SDK (androidx, or android.* other than util.Log). */
+    /**
+     * True if the file needs the Android SDK (androidx, or android.* other than the classes we
+     * stub — `android.util.Log`/`Base64`, see `src/main/java/android/util/`). The lookahead must
+     * name each stubbed class explicitly: earlier it excluded all of `android.util.*`, so a file
+     * importing an unstubbed one (e.g. `android.util.Base64`, before it was stubbed) still went to
+     * the compiler and failed with "Unresolved reference" instead of being skipped like the truly
+     * Android-coupled files are.
+     */
     private fun isAndroidCoupled(body: String): Boolean =
         Regex("(?m)^\\s*import\\s+androidx\\.").containsMatchIn(body) ||
-            Regex("(?m)^\\s*import\\s+android\\.(?!util\\.)").containsMatchIn(body)
+            Regex("(?m)^\\s*import\\s+android\\.(?!util\\.(Log|Base64)\\b)").containsMatchIn(body)
 
     private fun sanitize(name: String) = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }

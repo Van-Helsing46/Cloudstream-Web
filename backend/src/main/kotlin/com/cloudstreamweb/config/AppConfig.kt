@@ -18,6 +18,8 @@ data class AppConfig(
     val corsHosts: List<String>,
     /** Per-provider search timeout, ms. */
     val providerSearchTimeoutMs: Long,
+    /** FlareSolverr v1 endpoint for solving Cloudflare challenges, e.g. http://flaresolverr:8191/v1. */
+    val flareSolverrUrl: String?,
     /** Static frontend build directory, if present (Docker/prod). */
     val frontendDir: File?,
     /** Log format: "json" (structured, prod) or "text" (readable, dev). */
@@ -43,6 +45,7 @@ data class AppConfig(
                     ?.filter { it.isNotEmpty() }
                     ?: emptyList(),
                 providerSearchTimeoutMs = env("SEARCH_TIMEOUT_MS")?.toLongOrNull() ?: 15_000L,
+                flareSolverrUrl = env("FLARESOLVERR_URL")?.takeIf { it.isNotBlank() },
                 frontendDir = frontend?.takeIf { it.isDirectory },
                 logFormat = (env("LOG_FORMAT") ?: "text").lowercase(),
             )

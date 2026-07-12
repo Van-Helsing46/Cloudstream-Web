@@ -620,6 +620,11 @@ a:hover { color: var(--link-hover); }
   border-radius: var(--radius-pill);
   padding: 1px 8px;
 }
+.ext-badge-active {
+  color: var(--accent-soft-text);
+  border-color: var(--accent-soft-border);
+  background: var(--accent-soft-bg);
+}
 .ext-actions { flex: 0 0 auto; display: flex; gap: 8px; }
 
 /* Login gate */
