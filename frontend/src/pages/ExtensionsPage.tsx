@@ -157,6 +157,21 @@ function ExtensionRow({
               {t("extensions.notExecutable")}
             </span>
           )}
+          {installed && plugin.active === true && (
+            <span className="ext-badge ext-badge-active">{t("extensions.statusActive")}</span>
+          )}
+          {installed && plugin.active === false && (
+            <span
+              className="ext-badge"
+              title={
+                plugin.activationError
+                  ? t("extensions.statusInactiveTitle", { reason: plugin.activationError })
+                  : undefined
+              }
+            >
+              {t("extensions.statusInactive")}
+            </span>
+          )}
         </div>
         {plugin.description && <div className="muted ext-desc">{plugin.description}</div>}
         <div className="ext-meta muted">

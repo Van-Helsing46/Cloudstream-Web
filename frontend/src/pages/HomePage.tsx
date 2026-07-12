@@ -104,6 +104,7 @@ export function HomePage() {
   const sections = buildSections(responses, providerName);
   const heroItem: SearchItem | undefined = sections[0]?.items[0];
   const { top10Section, rails } = selectHomeSections(sections);
+  const providerErrors = responses.filter((r): r is HomeResponse & { error: string } => !!r.error);
 
   return (
     <>
@@ -134,6 +135,16 @@ export function HomePage() {
         {homeFailed && <p className="error">{t("home.backendUnreachable")}</p>}
         {!homeLoading && !homeFailed && sections.length === 0 && (
           <p className="muted">{t("home.noSections")}</p>
+        )}
+
+        {providerErrors.length > 0 && (
+          <div className="warn-banner">
+            {providerErrors.map((r) => (
+              <div key={r.providerId}>
+                <strong>{providerName(r.providerId)}</strong>: {r.error}
+              </div>
+            ))}
+          </div>
         )}
 
         {continueWatching.data && continueWatching.data.length > 0 && (

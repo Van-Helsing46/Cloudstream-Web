@@ -11,9 +11,24 @@ services:
       AUTH_PASSWORD: ${AUTH_PASSWORD:-}
       AUTH_SECRET: ${AUTH_SECRET:-cloudstream-web-default-secret-change-me}
       SEARCH_TIMEOUT_MS: ${SEARCH_TIMEOUT_MS:-15000}
+      # Cloudflare challenge solver (see flaresolverr service below). Same egress IP as the sidecar,
+      # so the cf_clearance cookies it returns are accepted on the backend's own requests.
+      FLARESOLVERR_URL: ${FLARESOLVERR_URL:-http://flaresolverr:8191/v1}
     volumes:
       # Persists installed extensions and the user library (survives redeploys).
       - cloudstream-web-data:/data
+    depends_on:
+      - flaresolverr
+    restart: unless-stopped
+
+  # Headless-browser challenge solver. Lets extractors behind a Cloudflare "Just a moment…" wall
+  # resolve stream links. Not exposed outside the compose network. To disable, remove this service
+  # and unset FLARESOLVERR_URL.
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:latest
+    container_name: cloudstream-web-flaresolverr
+    environment:
+      LOG_LEVEL: ${FLARESOLVERR_LOG_LEVEL:-info}
     restart: unless-stopped
 
 volumes:

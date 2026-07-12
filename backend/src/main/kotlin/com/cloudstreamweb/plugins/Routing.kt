@@ -170,12 +170,17 @@ fun Application.configureRouting(
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
                 // Bound the third-party provider call so a hung/misbehaving extension can't tie up
-                // the request indefinitely (same guard as search).
+                // the request indefinitely (same guard as search), and don't let a broken provider
+                // 500 the whole response — degrade to empty sections + an error field instead.
+                val result = runCatching {
+                    withTimeout(config.providerSearchTimeoutMs) { provider.mainPage(page) }
+                }
                 call.respond(
                     com.cloudstreamweb.domain.HomeResponse(
                         providerId = providerId,
                         page = page,
-                        sections = withTimeout(config.providerSearchTimeoutMs) { provider.mainPage(page) },
+                        sections = result.getOrDefault(emptyList()),
+                        error = result.exceptionOrNull()?.let { it.message ?: it::class.simpleName ?: "error" },
                     ),
                 )
             }
@@ -186,7 +191,16 @@ fun Application.configureRouting(
                 val id = call.request.queryParameters.getOrFail("id")
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
-                call.respond(withTimeout(config.providerSearchTimeoutMs) { provider.load(id) })
+                runCatching { withTimeout(config.providerSearchTimeoutMs) { provider.load(id) } }
+                    .onSuccess { call.respond(it) }
+                    // Scraper failures (site drift, Cloudflare, timeout) are an upstream 502, not a
+                    // generic 500 — and the real message is the only clue the user gets.
+                    .onFailure {
+                        call.respond(
+                            HttpStatusCode.BadGateway,
+                            mapOf("error" to (it.message ?: it::class.simpleName ?: "provider error")),
+                        )
+                    }
             }
 
             // Streaming link resolution
@@ -195,7 +209,14 @@ fun Application.configureRouting(
                 val id = call.request.queryParameters.getOrFail("id")
                 val provider = registry.get(providerId)
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
-                call.respond(withTimeout(config.providerSearchTimeoutMs) { provider.loadLinks(id) })
+                runCatching { withTimeout(config.providerSearchTimeoutMs) { provider.loadLinks(id) } }
+                    .onSuccess { call.respond(it) }
+                    .onFailure {
+                        call.respond(
+                            HttpStatusCode.BadGateway,
+                            mapOf("error" to (it.message ?: it::class.simpleName ?: "provider error")),
+                        )
+                    }
             }
 
             // ---- Extension management ----

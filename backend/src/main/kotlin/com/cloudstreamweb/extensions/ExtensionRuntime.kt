@@ -23,11 +23,21 @@ interface ExtensionRuntime {
      */
     val attemptsAnyExtension: Boolean get() = false
 
-    /** Instantiates the provider for [ext], or null if the runtime cannot execute it. */
-    fun instantiate(ext: InstalledExtension): Provider?
+    /** Instantiates the provider for [ext], or a [ActivationOutcome.Failed] with why not. */
+    fun instantiate(ext: InstalledExtension): ActivationOutcome
 
     /** Deletes any cached build artifacts for [internalName] (converted jars, recompiled classes). */
     fun cleanup(internalName: String) {}
+}
+
+/**
+ * Result of an activation attempt. [Failed.reason] is a short, human-readable cause — surfaced to
+ * the API/UI so "installed but not working" always has an explanation instead of a silent no-op
+ * (previously `instantiate` returned a bare `null`, and the only trace was a server WARN log).
+ */
+sealed interface ActivationOutcome {
+    data class Activated(val provider: Provider) : ActivationOutcome
+    data class Failed(val reason: String) : ActivationOutcome
 }
 
 /**
@@ -49,6 +59,7 @@ class BundledExtensionRuntime : ExtensionRuntime {
 
     override val supported: Set<String> get() = factories.keys
 
-    override fun instantiate(ext: InstalledExtension): Provider? =
-        factories[ext.internalName]?.invoke()
+    override fun instantiate(ext: InstalledExtension): ActivationOutcome =
+        factories[ext.internalName]?.let { ActivationOutcome.Activated(it()) }
+            ?: ActivationOutcome.Failed("bundled: no curated build for this extension")
 }

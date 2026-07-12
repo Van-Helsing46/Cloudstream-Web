@@ -612,6 +612,14 @@ components:
         repositoryUrl: { type: string, nullable: true }
         installedVersion: { type: integer, nullable: true }
         runtimeSupported: { type: boolean }
+        active:
+          type: boolean
+          nullable: true
+          description: "true/false if installed and a provider is (not) registered; null if not installed"
+        activationError:
+          type: string
+          nullable: true
+          description: Why activation failed, when active is false
     AddWatchlistRequest:
       type: object
       properties:

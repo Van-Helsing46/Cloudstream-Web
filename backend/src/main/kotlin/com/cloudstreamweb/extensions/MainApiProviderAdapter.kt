@@ -6,15 +6,20 @@ import com.cloudstreamweb.domain.MediaType
 import com.cloudstreamweb.domain.ProviderInfo
 import com.cloudstreamweb.domain.SearchItem
 import com.cloudstreamweb.domain.StreamLink
+import com.lagradost.cloudstream3.AnimeLoadResponse
+import com.lagradost.cloudstream3.DubStatus
+import com.lagradost.cloudstream3.LiveStreamLoadResponse
 import com.lagradost.cloudstream3.LoadResponse
 import com.lagradost.cloudstream3.MainAPI
 import com.lagradost.cloudstream3.MainPageRequest
 import com.lagradost.cloudstream3.MovieLoadResponse
 import com.lagradost.cloudstream3.MovieSearchResponse
+import com.lagradost.cloudstream3.TorrentLoadResponse
 import com.lagradost.cloudstream3.TvSeriesLoadResponse
 import com.lagradost.cloudstream3.TvType
 import com.lagradost.cloudstream3.utils.ExtractorLink
 import com.lagradost.cloudstream3.utils.ExtractorLinkType
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Adapter: exposes a Cloudstream `MainAPI` (real extension, recompiled for the JVM)
@@ -37,22 +42,40 @@ class MainApiProviderAdapter(private val api: MainAPI) : com.cloudstreamweb.prov
 
     override suspend fun mainPage(page: Int): List<HomeSection> {
         if (!api.hasMainPage) return emptyList()
-        // Many providers build all sections in one call and ignore the request;
-        // for those with a declared mainPage we pass the first entry as seed.
-        val seed = api.mainPage.firstOrNull()
-        val request = MainPageRequest(seed?.name ?: "Home", seed?.data ?: "", false)
-        val home = api.getMainPage(page, request) ?: return emptyList()
-        return home.items.map { section ->
-            HomeSection(
-                title = section.name,
-                items = section.list.map { it.toSearchItem() },
-                isHorizontal = section.isHorizontalImages,
-            )
+        // Cloudstream calls getMainPage once per declared mainPage entry (each request carries the
+        // section's own `data`); calling it only with the first entry left every other declared
+        // section empty for providers that honor request.data. Iterate the entries (capped), keep
+        // per-entry failures local, and if the whole pass runs long return what was collected so
+        // far — the endpoint's outer timeout would otherwise discard everything.
+        val requests = api.mainPage.take(MAX_MAIN_PAGE_SECTIONS)
+            .map { MainPageRequest(it.name, it.data, it.horizontalImages) }
+            .ifEmpty { listOf(MainPageRequest("Home", "", false)) }
+        val sections = mutableListOf<HomeSection>()
+        withTimeoutOrNull(MAIN_PAGE_BUDGET_MS) {
+            for (request in requests) {
+                val home = runCatching { api.getMainPage(page, request) }.getOrNull() ?: continue
+                home.items.mapTo(sections) { section ->
+                    HomeSection(
+                        title = section.name,
+                        items = section.list.map { it.toSearchItem() },
+                        isHorizontal = section.isHorizontalImages,
+                    )
+                }
+            }
         }
+        return sections.distinctBy { it.title }
     }
 
     override suspend fun search(query: String): List<SearchItem> =
-        api.search(query).orEmpty().map { it.toSearchItem() }
+        try {
+            // The paged overload covers both provider generations: new-style providers override it
+            // directly, and its library default delegates to the legacy single-arg `search`.
+            api.search(query, 1)?.items.orEmpty().map { it.toSearchItem() }
+        } catch (e: NotImplementedError) {
+            // Neither signature implemented: the provider simply has no search — not an error to
+            // surface in the aggregated response.
+            emptyList()
+        }
 
     private fun com.lagradost.cloudstream3.SearchResponse.toSearchItem() = SearchItem(
         id = url,
@@ -68,17 +91,30 @@ class MainApiProviderAdapter(private val api: MainAPI) : com.cloudstreamweb.prov
             ?: throw IllegalStateException("load($id) on ${api.name} returned nothing")
 
         val episodes = when (res) {
-            is TvSeriesLoadResponse -> res.episodes.map { ep ->
-                com.cloudstreamweb.domain.Episode(
-                    id = ep.data,
-                    name = ep.name,
-                    season = ep.season,
-                    episode = ep.episode,
-                    posterUrl = ep.posterUrl,
-                )
+            is TvSeriesLoadResponse -> res.episodes.map { it.toDomainEpisode() }
+            // Anime providers key episodes by dub status; flatten the map. With a single variant
+            // the names pass through untouched; with both, tag each episode so "Ep. 5" (Dub) and
+            // "Ep. 5" (Sub) stay distinguishable in a flat list.
+            is AnimeLoadResponse -> {
+                val variants = res.episodes.filterValues { it.isNotEmpty() }
+                variants.flatMap { (dubStatus, eps) ->
+                    eps.map { ep ->
+                        val base = ep.toDomainEpisode()
+                        if (variants.size > 1) base.copy(name = listOfNotNull(base.name, "(${dubStatus.label()})").joinToString(" "))
+                        else base
+                    }
+                }
             }
             is MovieLoadResponse -> listOf(
                 com.cloudstreamweb.domain.Episode(id = res.dataUrl, name = res.name),
+            )
+            // Live channels: one playable "episode" carrying the stream data url.
+            is LiveStreamLoadResponse -> listOf(
+                com.cloudstreamweb.domain.Episode(id = res.dataUrl, name = res.name),
+            )
+            // Torrent providers: the magnet/torrent URI is the data loadLinks expects.
+            is TorrentLoadResponse -> listOfNotNull(
+                (res.magnet ?: res.torrent)?.let { com.cloudstreamweb.domain.Episode(id = it, name = res.name) },
             )
             else -> emptyList()
         }
@@ -119,3 +155,23 @@ private fun TvType.toMediaType(): MediaType = when (this) {
     TvType.Live -> MediaType.LIVE
     else -> MediaType.OTHER
 }
+
+private fun com.lagradost.cloudstream3.Episode.toDomainEpisode() = com.cloudstreamweb.domain.Episode(
+    id = data,
+    name = name,
+    season = season,
+    episode = episode,
+    posterUrl = posterUrl,
+)
+
+private fun DubStatus.label(): String = when (this) {
+    DubStatus.Dubbed -> "Dub"
+    DubStatus.Subbed -> "Sub"
+    DubStatus.None -> "Raw"
+}
+
+/** Cap on getMainPage calls per home request (providers can declare dozens of sections). */
+private const val MAX_MAIN_PAGE_SECTIONS = 8
+
+/** Inner budget for the per-section loop, below the endpoint's 15s timeout so partial results survive. */
+private const val MAIN_PAGE_BUDGET_MS = 12_000L

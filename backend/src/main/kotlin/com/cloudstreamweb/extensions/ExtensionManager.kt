@@ -7,7 +7,9 @@ import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import org.slf4j.LoggerFactory
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
@@ -29,11 +31,16 @@ class ExtensionManager(
     private val stateDir: File,
     private val http: HttpClient,
 ) {
+    private val log = LoggerFactory.getLogger(javaClass)
     private val json = Json { ignoreUnknownKeys = true; prettyPrint = true }
     private val stateFile = File(stateDir, "state.json")
     private val cs3Dir = File(stateDir, "cs3")
     private val mutex = Mutex()
 
+    // @Volatile: read from route handlers without the mutex (repositories/installed/listAvailable);
+    // writes always go through mutex.withLock, so this only needs to guarantee cross-thread
+    // visibility of the reference swap, not exclusion.
+    @Volatile
     private var state: ExtensionsState = runCatching {
         json.decodeFromString<ExtensionsState>(stateFile.readText())
     }.getOrDefault(ExtensionsState())
@@ -47,7 +54,7 @@ class ExtensionManager(
 
     /** Registers a repository from a `repo.json` URL or directly a `plugins.json` one. */
     suspend fun addRepository(url: String): RepositoryRef {
-        val body = http.get(url).bodyAsText()
+        val body = withTimeout(NETWORK_TIMEOUT_MS) { http.get(url).bodyAsText() }
         val ref = if (body.trimStart().startsWith("[")) {
             // direct plugins.json: the repo "is" its only plugin list
             RepositoryRef(url = url, name = url.substringAfterLast('/'), pluginLists = listOf(url))
@@ -93,6 +100,8 @@ class ExtensionManager(
                     // Executable if a runtime already knows it, or if a runtime will attempt any
                     // extension on demand (dynamic DEX / recompile-from-source).
                     runtimeSupported = m.internalName in runtime.supported || runtime.attemptsAnyExtension,
+                    active = installedByName[m.internalName]?.active,
+                    activationError = installedByName[m.internalName]?.activationError,
                 )
             }
     }
@@ -127,15 +136,29 @@ class ExtensionManager(
         true
     }
 
-    /** On startup: reactivates the providers of installed extensions the runtime supports. */
-    fun activateInstalled() {
-        state.installed.forEach { tryActivate(it) }
+    /**
+     * On startup: reactivates the providers of installed extensions the runtime supports.
+     * Recompiling/dex-converting can mean blocking network calls and an in-process kotlinc run
+     * per extension — call this from a background coroutine (see `Application.kt`), not the
+     * server's init path, so a slow/unreachable source host doesn't delay accepting requests.
+     * Being suspend (not a fire-and-forget thread) lets it share [mutex] with install/uninstall,
+     * which now run concurrently with it instead of before it.
+     */
+    suspend fun activateInstalled() {
+        val results = state.installed.map { it.internalName to tryActivate(it) }
+        val failed = results.filter { !it.second }.map { it.first }
+        log.info(
+            "Extension activation: {} active, {} failed{}",
+            results.size - failed.size,
+            failed.size,
+            if (failed.isEmpty()) "" else " (${failed.joinToString()}) — see per-extension WARN logs above",
+        )
     }
 
     // ---- Internals ----
 
     private suspend fun installFromManifest(manifest: PluginManifest): InstallResult {
-        val bytes = http.get(manifest.url).bodyAsBytes()
+        val bytes = withTimeout(NETWORK_TIMEOUT_MS) { http.get(manifest.url).bodyAsBytes() }
         verifyHash(bytes, manifest.fileHash)
 
         val entry = InstalledExtension(
@@ -157,20 +180,48 @@ class ExtensionManager(
         }
 
         val active = tryActivate(entry)
+        val persisted = state.installed.firstOrNull { it.internalName == entry.internalName } ?: entry
         return InstallResult(
-            extension = entry,
+            extension = persisted,
             runtimeActive = active,
-            message = if (active) null else
-                "Installed, but the JVM runtime could not execute this extension (no source to recompile and the .cs3 was not runnable)",
+            message = if (active) null else persisted.activationError
+                ?: "Installed, but the JVM runtime could not execute this extension",
         )
     }
 
-    private fun tryActivate(ext: InstalledExtension): Boolean {
+    private suspend fun tryActivate(ext: InstalledExtension): Boolean {
         if (ext.internalName in activeProviders) return true
-        val provider = runtime.instantiate(ext) ?: return false
-        registry.register(provider)
-        activeProviders[ext.internalName] = provider.info.id
-        return true
+        // Not locked: recompiling/converting can take seconds and must not block other
+        // installs/uninstalls or a concurrent activateInstalled() pass on unrelated extensions.
+        val outcome = runtime.instantiate(ext)
+        return mutex.withLock {
+            // Re-check under the lock: another activation for the same extension (e.g. the
+            // startup pass racing a user-triggered reinstall) may have already won.
+            if (ext.internalName in activeProviders) return@withLock true
+            when (outcome) {
+                is ActivationOutcome.Activated -> {
+                    registry.register(outcome.provider)
+                    activeProviders[ext.internalName] = outcome.provider.info.id
+                    updateActivationStateLocked(ext.internalName, active = true, reason = null)
+                    true
+                }
+                is ActivationOutcome.Failed -> {
+                    updateActivationStateLocked(ext.internalName, active = false, reason = outcome.reason)
+                    false
+                }
+            }
+        }
+    }
+
+    /** Records the outcome of the latest activation attempt on the persisted entry, for the API/UI.
+     *  Must be called with [mutex] held. */
+    private fun updateActivationStateLocked(internalName: String, active: Boolean, reason: String?) {
+        val idx = state.installed.indexOfFirst { it.internalName == internalName }
+        if (idx < 0) return
+        val updated = state.installed.toMutableList()
+        updated[idx] = updated[idx].copy(active = active, activationError = reason)
+        state = state.copy(installed = updated)
+        save()
     }
 
     private suspend fun findManifest(internalName: String): PluginManifest? =
@@ -181,7 +232,7 @@ class ExtensionManager(
             .firstOrNull { it.internalName == internalName }
 
     private suspend fun fetchPluginList(url: String): List<PluginManifest> =
-        json.decodeFromString(http.get(url).bodyAsText())
+        json.decodeFromString(withTimeout(NETWORK_TIMEOUT_MS) { http.get(url).bodyAsText() })
 
     private fun verifyHash(bytes: ByteArray, expected: String?) {
         if (expected.isNullOrBlank()) return
@@ -204,3 +255,6 @@ class ExtensionManager(
         )
     }
 }
+
+/** Bounds repository/plugin-list/`.cs3` fetches so an unreachable host can't hang install/update. */
+private const val NETWORK_TIMEOUT_MS = 30_000L

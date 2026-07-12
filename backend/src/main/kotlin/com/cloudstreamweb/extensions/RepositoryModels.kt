@@ -57,6 +57,10 @@ data class InstalledExtension(
     val repositoryUrl: String? = null,
     val language: String? = null,
     val installedAt: String,               // ISO-8601
+    /** True if a runtime currently has a registered provider for this extension. */
+    val active: Boolean = false,
+    /** Why activation failed, when [active] is false (from the runtime that was tried). */
+    val activationError: String? = null,
 )
 
 /** Overall ExtensionManager state, serialized to `state.json`. */
@@ -87,6 +91,10 @@ data class AvailablePlugin(
      * false = installable but not executable until it gets recompiled for the JVM.
      */
     val runtimeSupported: Boolean,
+    /** true if a provider is currently registered for the installed version (null if not installed). */
+    val active: Boolean? = null,
+    /** Why activation failed, when [active] is false. */
+    val activationError: String? = null,
 )
 
 /** Install/update outcome, with the provider activation state. */

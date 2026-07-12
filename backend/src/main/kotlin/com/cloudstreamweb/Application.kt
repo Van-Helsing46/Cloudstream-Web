@@ -17,6 +17,7 @@ import com.cloudstreamweb.plugins.configureSerialization
 import com.cloudstreamweb.plugins.configureStaticFrontend
 import com.cloudstreamweb.provider.ProviderRegistry
 import io.ktor.server.application.Application
+import kotlinx.coroutines.launch
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import java.io.File
@@ -34,6 +35,15 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
     // No default providers: content only comes from user-installed extensions
     // (add repo → install → the runtime activates them, if bundled/executable).
     val registry = ProviderRegistry(initial = emptyList())
+
+    // If a FlareSolverr sidecar is configured, wire it into the CloudflareKiller shim so extension
+    // extractors behind a Cloudflare challenge can resolve links instead of degrading. Static seam:
+    // set once, shared by every extension's killer instance.
+    config.flareSolverrUrl?.let { url ->
+        com.lagradost.cloudstream3.network.CloudflareKiller.solver =
+            com.cloudstreamweb.extensions.FlareSolverrSolver(url)
+        environment.log.info("Cloudflare solver enabled via FlareSolverr at $url")
+    }
 
     // Shared client: extension downloads + streaming proxy (no global request
     // timeout: streams are long-lived).
@@ -58,7 +68,13 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
         stateDir = extensionsStateDir,
         http = httpClient,
     )
-    extensionManager.activateInstalled()
+    // Off the init path: activation does blocking network I/O + in-process compilation per
+    // extension, so a slow/unreachable source host must not delay the server accepting requests.
+    // `Application` is itself a CoroutineScope tied to the server lifecycle (cancelled on
+    // shutdown), so this is scoped correctly without reaching for GlobalScope.
+    launch(kotlinx.coroutines.Dispatchers.IO) {
+        extensionManager.activateInstalled()
+    }
 
     // Per-profile library (multi-user) + migration from the single-user format
     val librariesDir = File(config.dataDir, "library")

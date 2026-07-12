@@ -17,8 +17,16 @@ class CompositeExtensionRuntime(private val runtimes: List<ExtensionRuntime>) : 
     override val attemptsAnyExtension: Boolean
         get() = runtimes.any { it.attemptsAnyExtension }
 
-    override fun instantiate(ext: InstalledExtension): Provider? =
-        runtimes.firstNotNullOfOrNull { it.instantiate(ext) }
+    override fun instantiate(ext: InstalledExtension): ActivationOutcome {
+        val failures = mutableListOf<String>()
+        for (rt in runtimes) {
+            when (val outcome = rt.instantiate(ext)) {
+                is ActivationOutcome.Activated -> return outcome
+                is ActivationOutcome.Failed -> failures += outcome.reason
+            }
+        }
+        return ActivationOutcome.Failed(failures.joinToString("; "))
+    }
 
     override fun cleanup(internalName: String) = runtimes.forEach { it.cleanup(internalName) }
 }
