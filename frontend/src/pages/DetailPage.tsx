@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client";
-import { Player } from "../components/Player";
+import { Player, type ProgressReason } from "../components/Player";
 import type { Episode, HistoryEntry, StreamLink } from "../types";
 import { useT } from "../i18n";
 import { posterGradient } from "../lib/colors";
@@ -18,6 +18,7 @@ export function DetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const qc = useQueryClient();
   const [playing, setPlaying] = useState<Episode | null>(null);
   const [links, setLinks] = useState<StreamLink[] | null>(null);
   const [current, setCurrent] = useState<StreamLink | null>(null);
@@ -134,12 +135,16 @@ export function DetailPage() {
     }
   }
 
-  // Persists the position (called by the Player); mediaId = the page's id.
-  function saveProgress(position: number, duration: number) {
+  // Persists the position (called by the Player); mediaId = the page's id. Also
+  // invalidates the progress queries so badges/bars update without a page refresh —
+  // immediately for pause/unmount/ended, throttled for the 10s heartbeat.
+  const lastInvalidateAt = useRef(0);
+  const INVALIDATE_THROTTLE_MS = 30_000;
+  async function saveProgress(position: number, duration: number, reason: ProgressReason) {
     const ep = playing;
     const media = detail.data;
     if (!ep || !media) return;
-    void api.library.recordProgress({
+    await api.library.recordProgress({
       providerId,
       mediaId: id,
       episodeId: ep.id,
@@ -151,6 +156,11 @@ export function DetailPage() {
       positionSeconds: position,
       durationSeconds: duration,
     });
+    const now = Date.now();
+    if (reason === "interval" && now - lastInvalidateAt.current < INVALIDATE_THROTTLE_MS) return;
+    lastInvalidateAt.current = now;
+    void qc.invalidateQueries({ queryKey: ["library", "media-progress", providerId, id] });
+    void qc.invalidateQueries({ queryKey: ["library", "continue"] });
   }
 
   function goBack() {

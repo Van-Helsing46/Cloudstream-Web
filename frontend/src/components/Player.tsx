@@ -11,6 +11,8 @@ import type { StreamLink } from "../types";
  * Resume: `resumeAt` seeks the video on start; `onProgress` is called periodically
  * (and on pause) with the current position/duration, so the page can persist them.
  */
+export type ProgressReason = "interval" | "pause" | "unmount" | "ended";
+
 export function Player({
   link,
   resumeAt,
@@ -18,7 +20,7 @@ export function Player({
 }: {
   link: StreamLink;
   resumeAt?: number;
-  onProgress?: (positionSeconds: number, durationSeconds: number) => void;
+  onProgress?: (positionSeconds: number, durationSeconds: number, reason: ProgressReason) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const src = streamProxyUrl(link);
@@ -49,21 +51,26 @@ export function Player({
     };
     video.addEventListener("loadedmetadata", doResume);
 
-    const report = () => {
+    const report = (reason: ProgressReason) => {
       if (video.duration && !Number.isNaN(video.duration)) {
-        progressRef.current?.(video.currentTime, video.duration);
+        progressRef.current?.(video.currentTime, video.duration, reason);
       }
     };
-    const interval = window.setInterval(() => {
-      if (!video.paused) report();
-    }, 10_000);
-    video.addEventListener("pause", report);
+    const onInterval = () => {
+      if (!video.paused) report("interval");
+    };
+    const onPause = () => report("pause");
+    const onEnded = () => report("ended");
+    const interval = window.setInterval(onInterval, 10_000);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("ended", onEnded);
 
     return () => {
       window.clearInterval(interval);
       video.removeEventListener("loadedmetadata", doResume);
-      video.removeEventListener("pause", report);
-      report(); // save the last position on unmount
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("ended", onEnded);
+      report("unmount"); // save the last position on unmount
       hls?.destroy();
     };
   }, [link, src, resumeAt]);
