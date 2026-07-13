@@ -316,6 +316,7 @@ export function DetailPage() {
                         {ep.episode != null ? `${ep.episode}. ` : ""}
                         {ep.name ?? t("detail.episodeFallback", { n: i + 1 })}
                       </span>
+                      {ep.description && <p className="episode-desc">{ep.description}</p>}
                     </div>
                     {badge && <span className="episode-badge">{badge}</span>}
                   </button>

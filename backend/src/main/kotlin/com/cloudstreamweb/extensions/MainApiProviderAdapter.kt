@@ -162,6 +162,7 @@ private fun com.lagradost.cloudstream3.Episode.toDomainEpisode() = com.cloudstre
     season = season,
     episode = episode,
     posterUrl = posterUrl,
+    description = description,
 )
 
 private fun DubStatus.label(): String = when (this) {

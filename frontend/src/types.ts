@@ -37,6 +37,7 @@ export interface Episode {
   season?: number | null;
   episode?: number | null;
   posterUrl?: string | null;
+  description?: string | null;
 }
 
 export interface MediaDetail {

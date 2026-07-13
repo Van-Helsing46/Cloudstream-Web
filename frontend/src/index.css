@@ -612,6 +612,17 @@ a:hover { color: var(--link-hover); }
 }
 .episode-info { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .episode-title { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.episode-desc {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--muted);
+  text-align: left;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
 .episode-badge { flex: none; font-size: 11px; color: var(--muted); padding-right: 8px; }
 
 /* Extensions */
