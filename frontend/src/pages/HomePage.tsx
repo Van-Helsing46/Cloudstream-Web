@@ -6,6 +6,7 @@ import { SectionRail } from "../components/SectionRail";
 import { ResumeCard } from "../components/ResumeCard";
 import { useT } from "../i18n";
 import { posterGradient } from "../lib/colors";
+import { matchGenre, type GenreKey } from "../lib/genres";
 import type { HomeResponse, HomeSection, SearchItem } from "../types";
 
 /**
@@ -52,6 +53,7 @@ export function HomePage() {
   const t = useT();
   const providers = useQuery({ queryKey: ["providers"], queryFn: api.providers });
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null); // null = All
+  const [selectedGenre, setSelectedGenre] = useState<GenreKey | null>(null); // null = all genres
 
   const homeProviders = providers.data?.filter((p) => p.hasMainPage) ?? [];
   const providerName = (id: string) => providers.data?.find((p) => p.id === id)?.name ?? id;
@@ -106,6 +108,10 @@ export function HomePage() {
   const { top10Section, rails } = selectHomeSections(sections);
   const providerErrors = responses.filter((r): r is HomeResponse & { error: string } => !!r.error);
 
+  // v1 genre navigation: derived from rail titles (no taxonomy from providers), see lib/genres.
+  const presentGenres = [...new Set(rails.map((s) => matchGenre(s.title)).filter((g): g is GenreKey => g !== null))];
+  const visibleRails = selectedGenre ? rails.filter((s) => matchGenre(s.title) === selectedGenre) : rails;
+
   return (
     <>
       {heroItem && <Hero item={heroItem} />}
@@ -126,6 +132,26 @@ export function HomePage() {
                 onClick={() => setSelectedProviderId(p.id)}
               >
                 {p.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {presentGenres.length > 0 && (
+          <div className="chip-row">
+            <button
+              className={selectedGenre === null ? "chip chip-active" : "chip"}
+              onClick={() => setSelectedGenre(null)}
+            >
+              {t("home.allGenres")}
+            </button>
+            {presentGenres.map((g) => (
+              <button
+                key={g}
+                className={selectedGenre === g ? "chip chip-active" : "chip"}
+                onClick={() => setSelectedGenre(g)}
+              >
+                {t(`home.genre.${g}`)}
               </button>
             ))}
           </div>
@@ -169,7 +195,7 @@ export function HomePage() {
           </section>
         )}
 
-        {rails.map((section, i) => (
+        {visibleRails.map((section, i) => (
           <SectionRail key={`${section.title}-${i}`} section={section} />
         ))}
       </div>
