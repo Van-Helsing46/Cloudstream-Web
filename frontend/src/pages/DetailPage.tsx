@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
@@ -13,7 +13,7 @@ import { useWatchlist } from "../hooks/useWatchlist";
 export function DetailPage() {
   const t = useT();
   const { providerId = "" } = useParams();
-  const [params] = useSearchParams();
+  const [params, setSearchParams] = useSearchParams();
   const id = params.get("id") ?? "";
   const location = useLocation();
   const navigate = useNavigate();
@@ -61,6 +61,27 @@ export function DetailPage() {
   const resumeEntry = (mediaProgress.data ?? []).find(
     (e) => !e.durationSeconds || e.positionSeconds / e.durationSeconds < 0.9,
   );
+
+  // ?play=1 (from a search-result "play" button): auto-open the player once the
+  // detail + progress are ready, then drop the param so a refresh doesn't replay it.
+  const autoplayDone = useRef(false);
+  useEffect(() => {
+    autoplayDone.current = false;
+  }, [providerId, id]);
+  useEffect(() => {
+    if (autoplayDone.current) return;
+    if (params.get("play") !== "1") return;
+    if (!detail.data || !mediaProgress.isFetched) return;
+    autoplayDone.current = true;
+    const media = detail.data;
+    const target = resumeEntry
+      ? media.episodes.find((e) => e.id === resumeEntry.episodeId) ?? media.episodes[0]
+      : media.episodes[0];
+    if (target) void play(target);
+    const next = new URLSearchParams(params);
+    next.delete("play");
+    setSearchParams(next, { replace: true });
+  }, [params, detail.data, mediaProgress.isFetched, resumeEntry, setSearchParams]);
 
   async function toggleWatchlist() {
     const media = detail.data;
