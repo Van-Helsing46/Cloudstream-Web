@@ -120,7 +120,9 @@ export function SearchBox() {
                 <div className="searchbox-result-info">
                   <span className="searchbox-result-title">{item.title}</span>
                   <span className="searchbox-result-meta muted">
-                    {[item.year, item.type, providerName(item.providerId)].filter(Boolean).join(" · ")}
+                    {[item.year, t(`mediaType.${item.type}`), providerName(item.providerId)]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </div>
               </button>

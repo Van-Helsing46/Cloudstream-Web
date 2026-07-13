@@ -11,6 +11,13 @@ export const en = {
     switchProfile: "Switch profile",
   },
   notFound: "Page not found.",
+  mediaType: {
+    MOVIE: "Movie",
+    TV_SERIES: "TV series",
+    ANIME: "Anime",
+    LIVE: "Live",
+    OTHER: "Other",
+  },
   home: {
     loadingProviders: "Loading providers…",
     backendUnreachable: "Backend unreachable.",

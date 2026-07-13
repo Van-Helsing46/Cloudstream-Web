@@ -294,7 +294,7 @@ export function DetailPage() {
           <div className="detail-info">
             <h1 className="detail-title">{media.title}</h1>
             <div className="detail-tags">
-              <span className="detail-tag">{media.type}</span>
+              <span className="detail-tag">{t(`mediaType.${media.type}`)}</span>
               {media.year != null && <span className="detail-tag">{media.year}</span>}
               <span className="detail-tag detail-tag-accent">{providerLabel}</span>
             </div>

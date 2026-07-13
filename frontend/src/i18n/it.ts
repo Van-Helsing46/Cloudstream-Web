@@ -13,6 +13,13 @@ export const it = {
     switchProfile: "Cambia profilo",
   },
   notFound: "Pagina non trovata.",
+  mediaType: {
+    MOVIE: "Film",
+    TV_SERIES: "Serie TV",
+    ANIME: "Anime",
+    LIVE: "Live",
+    OTHER: "Altro",
+  },
   home: {
     loadingProviders: "Carico i provider…",
     backendUnreachable: "Backend non raggiungibile.",

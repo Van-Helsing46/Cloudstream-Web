@@ -232,7 +232,7 @@ function Hero({ item }: { item: SearchItem }) {
     : t("detail.play");
 
   const href = `/media/${item.providerId}?id=${encodeURIComponent(item.id)}`;
-  const meta = [item.type, item.year, providerLabel].filter(Boolean).join(" · ");
+  const meta = [t(`mediaType.${item.type}`), item.year, providerLabel].filter(Boolean).join(" · ");
 
   return (
     <div
