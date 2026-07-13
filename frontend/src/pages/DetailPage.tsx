@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client";
 import { Player } from "../components/Player";
 import type { Episode, HistoryEntry, StreamLink } from "../types";
 import { useT } from "../i18n";
 import { posterGradient } from "../lib/colors";
+import { sortEpisodes } from "../lib/episodes";
+import { useWatchlist } from "../hooks/useWatchlist";
 
 /** Detail page: backdrop hero, poster/metadata, season pills, episode rows → play via proxy. */
 export function DetailPage() {
@@ -16,7 +18,6 @@ export function DetailPage() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const qc = useQueryClient();
   const [playing, setPlaying] = useState<Episode | null>(null);
   const [links, setLinks] = useState<StreamLink[] | null>(null);
   const [current, setCurrent] = useState<StreamLink | null>(null);
@@ -42,12 +43,8 @@ export function DetailPage() {
 
   const providers = useQuery({ queryKey: ["providers"], queryFn: api.providers });
 
-  const watchlist = useQuery({
-    queryKey: ["library", "watchlist"],
-    queryFn: api.library.watchlist,
-  });
-  const inWatchlist =
-    watchlist.data?.some((w) => w.providerId === providerId && w.mediaId === id) ?? false;
+  const { isInWatchlist, toggle: toggleWatchlistItem } = useWatchlist();
+  const inWatchlist = isInWatchlist(providerId, id);
 
   // Per-series progress: map episodeId → entry (for "Resume SxEy" and episode badges).
   const mediaProgress = useQuery({
@@ -68,24 +65,19 @@ export function DetailPage() {
   async function toggleWatchlist() {
     const media = detail.data;
     if (!media) return;
-    if (inWatchlist) {
-      await api.library.removeWatchlist(providerId, id);
-    } else {
-      await api.library.addWatchlist({
-        providerId,
-        mediaId: id,
-        title: media.title,
-        type: media.type,
-        posterUrl: media.posterUrl,
-        year: media.year,
-      });
-    }
-    qc.invalidateQueries({ queryKey: ["library"] });
+    await toggleWatchlistItem({
+      providerId,
+      mediaId: id,
+      title: media.title,
+      type: media.type,
+      posterUrl: media.posterUrl,
+      year: media.year,
+    });
   }
 
   // Episodes grouped by season (movies have a single "episode").
   const seasons = useMemo(() => {
-    const eps = detail.data?.episodes ?? [];
+    const eps = sortEpisodes(detail.data?.episodes ?? []);
     const groups = new Map<number, Episode[]>();
     for (const ep of eps) {
       const key = ep.season ?? 0;
