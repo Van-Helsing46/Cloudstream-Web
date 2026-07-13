@@ -65,6 +65,10 @@ export const it = {
     badgeWatched: "Visto ✓",
     noSource: "Nessuna fonte disponibile per questo contenuto.",
     back: "Indietro",
+    fullscreen: "Schermo intero",
+    nextEpisode: "Prossimo episodio",
+    playNow: "Riproduci ora",
+    cancel: "Annulla",
   },
   library: {
     title: "Libreria",

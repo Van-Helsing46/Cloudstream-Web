@@ -63,6 +63,10 @@ export const en = {
     badgeWatched: "Watched ✓",
     noSource: "No source available for this content.",
     back: "Back",
+    fullscreen: "Fullscreen",
+    nextEpisode: "Next episode",
+    playNow: "Play now",
+    cancel: "Cancel",
   },
   library: {
     title: "Library",

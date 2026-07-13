@@ -27,6 +27,60 @@ export function DetailPage() {
   const [resumeAt, setResumeAt] = useState<number>(0);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
 
+  // Fullscreen lives on a wrapper around the whole player section (not the <video>
+  // itself), so the "next episode" overlay stays visible in fullscreen and survives
+  // the Player unmount/remount that happens when play() swaps episodes.
+  const playerShellRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const handler = () => setIsFullscreen(document.fullscreenElement === playerShellRef.current);
+    document.addEventListener("fullscreenchange", handler);
+    return () => document.removeEventListener("fullscreenchange", handler);
+  }, []);
+  function toggleFullscreen() {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void playerShellRef.current?.requestFullscreen();
+  }
+
+  // "Next episode" countdown, shown on the player's `ended` event.
+  const NEXT_EPISODE_COUNTDOWN = 10;
+  const [nextPrompt, setNextPrompt] = useState<Episode | null>(null);
+  const [countdown, setCountdown] = useState(NEXT_EPISODE_COUNTDOWN);
+  const countdownTimer = useRef<number | undefined>(undefined);
+  function clearCountdown() {
+    if (countdownTimer.current !== undefined) {
+      window.clearInterval(countdownTimer.current);
+      countdownTimer.current = undefined;
+    }
+  }
+  function cancelNextPrompt() {
+    clearCountdown();
+    setNextPrompt(null);
+  }
+  function startNextEpisodeCountdown(next: Episode) {
+    setNextPrompt(next);
+    let remaining = NEXT_EPISODE_COUNTDOWN;
+    setCountdown(remaining);
+    clearCountdown();
+    countdownTimer.current = window.setInterval(() => {
+      remaining -= 1;
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        clearCountdown();
+        setNextPrompt(null);
+        void play(next);
+      }
+    }, 1000);
+  }
+  function playNextNow() {
+    if (!nextPrompt) return;
+    const next = nextPrompt;
+    clearCountdown();
+    setNextPrompt(null);
+    void play(next);
+  }
+  useEffect(() => () => clearCountdown(), []); // stop the timer on unmount
+
   // A different title: drop the previous one's player/season state.
   useEffect(() => {
     setPlaying(null);
@@ -34,6 +88,7 @@ export function DetailPage() {
     setCurrent(null);
     setLinkError(null);
     setSelectedSeason(null);
+    cancelNextPrompt();
   }, [providerId, id]);
 
   const detail = useQuery({
@@ -98,17 +153,26 @@ export function DetailPage() {
   }
 
   // Episodes grouped by season (movies have a single "episode").
+  const flatEpisodes = useMemo(() => sortEpisodes(detail.data?.episodes ?? []), [detail.data]);
   const seasons = useMemo(() => {
-    const eps = sortEpisodes(detail.data?.episodes ?? []);
     const groups = new Map<number, Episode[]>();
-    for (const ep of eps) {
+    for (const ep of flatEpisodes) {
       const key = ep.season ?? 0;
       (groups.get(key) ?? groups.set(key, []).get(key)!).push(ep);
     }
     return [...groups.entries()].sort((a, b) => a[0] - b[0]);
-  }, [detail.data]);
+  }, [flatEpisodes]);
+
+  function handlePlaybackEnded() {
+    const ep = playing;
+    if (!ep) return;
+    const idx = flatEpisodes.findIndex((e) => e.id === ep.id);
+    const next = idx >= 0 && idx < flatEpisodes.length - 1 ? flatEpisodes[idx + 1] : null;
+    if (next) startNextEpisodeCountdown(next);
+  }
 
   async function play(episode: Episode) {
+    cancelNextPrompt();
     setPlaying(episode);
     setLinks(null);
     setCurrent(null);
@@ -249,25 +313,68 @@ export function DetailPage() {
         </div>
 
         {playing && (
-          <section className="player-section">
-            {current && <Player link={current} resumeAt={resumeAt} onProgress={saveProgress} />}
-            {loadingLinks && <p className="muted">{t("detail.resolvingSource")}</p>}
-            {linkError && <p className="error">{linkError}</p>}
-            {links && links.length > 1 && (
-              <div className="chip-row">
-                <span className="muted">{t("detail.source")}</span>
-                {links.map((l, i) => (
-                  <button
-                    key={i}
-                    className={l === current ? "chip chip-active" : "chip"}
-                    onClick={() => setCurrent(l)}
-                  >
-                    {l.quality ?? t("detail.sourceN", { n: i + 1 })}
-                  </button>
-                ))}
+          <div ref={playerShellRef} className="player-shell">
+            <section className="player-section">
+              {current && (
+                <Player
+                  link={current}
+                  resumeAt={resumeAt}
+                  onProgress={saveProgress}
+                  onEnded={handlePlaybackEnded}
+                />
+              )}
+              {loadingLinks && <p className="muted">{t("detail.resolvingSource")}</p>}
+              {linkError && <p className="error">{linkError}</p>}
+              {links && links.length > 1 && (
+                <div className="chip-row">
+                  <span className="muted">{t("detail.source")}</span>
+                  {links.map((l, i) => (
+                    <button
+                      key={i}
+                      className={l === current ? "chip chip-active" : "chip"}
+                      onClick={() => setCurrent(l)}
+                    >
+                      {l.quality ?? t("detail.sourceN", { n: i + 1 })}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {current && (
+              // Native fullscreen (via the <video> controls) only fullscreens the video
+              // itself and hides this overlay, so fullscreen must go through this button.
+              <button
+                type="button"
+                className="player-fullscreen-btn"
+                onClick={toggleFullscreen}
+                title={t("detail.fullscreen")}
+                aria-label={t("detail.fullscreen")}
+              >
+                {isFullscreen ? "⤡" : "⤢"}
+              </button>
+            )}
+
+            {nextPrompt && (
+              <div className="next-episode-overlay">
+                <div className="next-episode-card">
+                  <span className="next-episode-label">{t("detail.nextEpisode")}</span>
+                  <span className="next-episode-title">
+                    {nextPrompt.episode != null ? `${nextPrompt.episode}. ` : ""}
+                    {nextPrompt.name ?? t("detail.episodeFallback", { n: nextPrompt.episode ?? 0 })}
+                  </span>
+                  <div className="next-episode-actions">
+                    <button className="btn-primary" onClick={playNextNow}>
+                      {t("detail.playNow")} ({countdown}s)
+                    </button>
+                    <button className="btn-secondary" onClick={cancelNextPrompt}>
+                      {t("detail.cancel")}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-          </section>
+          </div>
         )}
 
         {!isMovie && (

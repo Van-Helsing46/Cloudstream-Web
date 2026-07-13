@@ -17,17 +17,21 @@ export function Player({
   link,
   resumeAt,
   onProgress,
+  onEnded,
 }: {
   link: StreamLink;
   resumeAt?: number;
   onProgress?: (positionSeconds: number, durationSeconds: number, reason: ProgressReason) => void;
+  onEnded?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const src = streamProxyUrl(link);
 
-  // Always-fresh ref so listeners are not recreated on every render.
+  // Always-fresh refs so listeners are not recreated on every render.
   const progressRef = useRef(onProgress);
   progressRef.current = onProgress;
+  const endedRef = useRef(onEnded);
+  endedRef.current = onEnded;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -60,16 +64,19 @@ export function Player({
       if (!video.paused) report("interval");
     };
     const onPause = () => report("pause");
-    const onEnded = () => report("ended");
+    const handleEnded = () => {
+      report("ended");
+      endedRef.current?.();
+    };
     const interval = window.setInterval(onInterval, 10_000);
     video.addEventListener("pause", onPause);
-    video.addEventListener("ended", onEnded);
+    video.addEventListener("ended", handleEnded);
 
     return () => {
       window.clearInterval(interval);
       video.removeEventListener("loadedmetadata", doResume);
       video.removeEventListener("pause", onPause);
-      video.removeEventListener("ended", onEnded);
+      video.removeEventListener("ended", handleEnded);
       report("unmount"); // save the last position on unmount
       hls?.destroy();
     };
