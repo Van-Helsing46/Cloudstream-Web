@@ -68,7 +68,7 @@ export function DetailPage() {
       if (remaining <= 0) {
         clearCountdown();
         setNextPrompt(null);
-        void play(next);
+        void play(next, { fromStart: true });
       }
     }, 1000);
   }
@@ -77,7 +77,7 @@ export function DetailPage() {
     const next = nextPrompt;
     clearCountdown();
     setNextPrompt(null);
-    void play(next);
+    void play(next, { fromStart: true });
   }
   useEffect(() => () => clearCountdown(), []); // stop the timer on unmount
 
@@ -171,7 +171,10 @@ export function DetailPage() {
     if (next) startNextEpisodeCountdown(next);
   }
 
-  async function play(episode: Episode) {
+  // `fromStart` skips the resume lookup: auto-advancing to the next episode should play it
+  // from the beginning, not resume a stale saved position (a next episode already watched to
+  // the end would otherwise fire "ended" immediately and cascade-skip through the series).
+  async function play(episode: Episode, opts: { fromStart?: boolean } = {}) {
     cancelNextPrompt();
     setPlaying(episode);
     setLinks(null);
@@ -182,7 +185,7 @@ export function DetailPage() {
     try {
       // Saved position (resume) and sources in parallel.
       const [saved, resolved] = await Promise.all([
-        api.library.progress(providerId, episode.id).catch(() => null),
+        opts.fromStart ? Promise.resolve(null) : api.library.progress(providerId, episode.id).catch(() => null),
         api.links(providerId, episode.id),
       ]);
       if (resolved.length === 0) {
