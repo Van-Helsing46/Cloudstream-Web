@@ -69,6 +69,8 @@ export const en = {
     badgeInProgress: "In progress",
     badgeWatched: "Watched ✓",
     noSource: "No source available for this content.",
+    sourceUnavailable:
+      "Couldn't get a playable source from this provider. It may be temporarily unavailable or protected by an anti-bot check (Cloudflare) — in that case FlareSolverr needs to be configured.",
     back: "Back",
     fullscreen: "Fullscreen",
     nextEpisode: "Next episode",

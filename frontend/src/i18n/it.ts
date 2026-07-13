@@ -71,6 +71,8 @@ export const it = {
     badgeInProgress: "In corso",
     badgeWatched: "Visto ✓",
     noSource: "Nessuna fonte disponibile per questo contenuto.",
+    sourceUnavailable:
+      "Impossibile ottenere una sorgente riproducibile da questo provider. Potrebbe essere temporaneamente non disponibile o protetto da un controllo anti-bot (Cloudflare) — in tal caso va configurato FlareSolverr.",
     back: "Indietro",
     fullscreen: "Schermo intero",
     nextEpisode: "Prossimo episodio",

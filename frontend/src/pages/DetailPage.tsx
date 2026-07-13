@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { Player, type ProgressReason } from "../components/Player";
 import type { Episode, HistoryEntry, StreamLink } from "../types";
 import { useT } from "../i18n";
@@ -193,7 +193,14 @@ export function DetailPage() {
       setLinks(resolved);
       setCurrent(resolved[0]);
     } catch (e) {
-      setLinkError(e instanceof Error ? e.message : String(e));
+      // A message-less scraper failure (backend code "unresolved", typically an unsolved
+      // Cloudflare challenge) surfaces as an opaque "NullPointerException" — show an
+      // actionable message instead.
+      if (e instanceof ApiError && e.code === "unresolved") {
+        setLinkError(t("detail.sourceUnavailable"));
+      } else {
+        setLinkError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
       setLoadingLinks(false);
     }
