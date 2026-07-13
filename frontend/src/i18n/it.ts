@@ -72,6 +72,8 @@ export const it = {
     nothingToResume: "Niente da riprendere.",
     watchlist: "Watchlist",
     emptyWatchlist: "La watchlist è vuota. Aggiungi titoli dalla pagina dettaglio.",
+    recentlyWatched: "Recentemente visti",
+    emptyCompleted: "Nessun titolo ancora completato.",
   },
   extensions: {
     title: "Estensioni",

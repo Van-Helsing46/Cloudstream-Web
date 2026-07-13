@@ -155,12 +155,14 @@ export function DetailPage() {
       posterUrl: media.posterUrl,
       positionSeconds: position,
       durationSeconds: duration,
+      totalEpisodes: media.episodes.length,
     });
     const now = Date.now();
     if (reason === "interval" && now - lastInvalidateAt.current < INVALIDATE_THROTTLE_MS) return;
     lastInvalidateAt.current = now;
     void qc.invalidateQueries({ queryKey: ["library", "media-progress", providerId, id] });
     void qc.invalidateQueries({ queryKey: ["library", "continue"] });
+    void qc.invalidateQueries({ queryKey: ["library", "completed"] });
   }
 
   function goBack() {

@@ -197,6 +197,11 @@ export const api = {
       request<HistoryEntry[]>("/library/history?continue=true", {
         headers: profileHeaders(),
       }),
+    /** Media fully watched (every episode finished), most recent first. */
+    completed: () =>
+      request<HistoryEntry[]>("/library/history?completed=true", {
+        headers: profileHeaders(),
+      }),
     // 204 → no saved position: return null.
     progress: async (providerId: string, episodeId: string) => {
       const res = await fetch(

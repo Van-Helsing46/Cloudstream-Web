@@ -407,10 +407,18 @@ fun Application.configureRouting(
                 }
 
                 // History; ?continue=true → one entry per series/movie, finished ones excluded
+                // ?completed=true → media fully watched (every episode finished)
                 get("/history") {
                     val library = libraryOrRespond() ?: return@get
                     val onlyContinue = call.request.queryParameters["continue"]?.toBoolean() ?: false
-                    call.respond(if (onlyContinue) library.continueWatching() else library.history())
+                    val onlyCompleted = call.request.queryParameters["completed"]?.toBoolean() ?: false
+                    call.respond(
+                        when {
+                            onlyCompleted -> library.completed()
+                            onlyContinue -> library.continueWatching()
+                            else -> library.history()
+                        },
+                    )
                 }
 
                 // Saved position for an episode (for the player's resume)

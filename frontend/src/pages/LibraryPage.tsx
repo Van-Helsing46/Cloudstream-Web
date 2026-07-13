@@ -12,6 +12,10 @@ export function LibraryPage() {
     queryKey: ["library", "continue"],
     queryFn: api.library.continueWatching,
   });
+  const completed = useQuery({
+    queryKey: ["library", "completed"],
+    queryFn: api.library.completed,
+  });
 
   return (
     <>
@@ -44,6 +48,27 @@ export function LibraryPage() {
                   type: w.type,
                   posterUrl: w.posterUrl,
                   year: w.year,
+                }}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="rail-title">{t("library.recentlyWatched")}</h2>
+          {completed.data?.length === 0 && (
+            <p className="muted">{t("library.emptyCompleted")}</p>
+          )}
+          <div className="card-grid">
+            {completed.data?.map((h) => (
+              <MediaCard
+                key={`${h.providerId}:${h.mediaId}`}
+                item={{
+                  id: h.mediaId,
+                  providerId: h.providerId,
+                  title: h.title,
+                  type: "OTHER",
+                  posterUrl: h.posterUrl,
                 }}
               />
             ))}

@@ -131,6 +131,7 @@ export interface HistoryEntry {
   positionSeconds: number;
   durationSeconds?: number | null;
   updatedAt: string;
+  totalEpisodes?: number | null;
 }
 
 export interface ProgressRequest {
@@ -144,6 +145,7 @@ export interface ProgressRequest {
   posterUrl?: string | null;
   positionSeconds: number;
   durationSeconds?: number | null;
+  totalEpisodes?: number | null;
 }
 
 // ---- Profiles (multi-user) ----

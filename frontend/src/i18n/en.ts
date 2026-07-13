@@ -70,6 +70,8 @@ export const en = {
     nothingToResume: "Nothing to resume.",
     watchlist: "Watchlist",
     emptyWatchlist: "The watchlist is empty. Add titles from the detail page.",
+    recentlyWatched: "Recently watched",
+    emptyCompleted: "No titles finished yet.",
   },
   extensions: {
     title: "Extensions",
