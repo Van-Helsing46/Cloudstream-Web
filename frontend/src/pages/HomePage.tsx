@@ -117,6 +117,17 @@ export function HomePage() {
       {heroItem && <Hero item={heroItem} />}
 
       <div className="page-sections">
+        {continueWatching.data && continueWatching.data.length > 0 && (
+          <section>
+            <h2 className="rail-title">{t("library.continueWatching")}</h2>
+            <div className="rail-track">
+              {continueWatching.data.map((h) => (
+                <ResumeCard key={`${h.providerId}:${h.episodeId}`} entry={h} />
+              ))}
+            </div>
+          </section>
+        )}
+
         {homeProviders.length > 1 && (
           <div className="chip-row">
             <button
@@ -171,17 +182,6 @@ export function HomePage() {
               </div>
             ))}
           </div>
-        )}
-
-        {continueWatching.data && continueWatching.data.length > 0 && (
-          <section>
-            <h2 className="rail-title">{t("library.continueWatching")}</h2>
-            <div className="rail-track">
-              {continueWatching.data.map((h) => (
-                <ResumeCard key={`${h.providerId}:${h.episodeId}`} entry={h} />
-              ))}
-            </div>
-          </section>
         )}
 
         {top10Section && top10Section.items.length > 0 && (
