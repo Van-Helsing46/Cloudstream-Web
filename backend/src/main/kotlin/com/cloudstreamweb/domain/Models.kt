@@ -53,6 +53,7 @@ data class Episode(
     val season: Int? = null,
     val episode: Int? = null,
     val posterUrl: String? = null,
+    val description: String? = null,
 )
 
 @Serializable

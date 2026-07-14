@@ -38,6 +38,24 @@ class LibraryStore(private val stateDir: File) {
     fun entriesForMedia(providerId: String, mediaId: String): List<HistoryEntry> =
         state.history.filter { it.providerId == providerId && it.mediaId == mediaId }
 
+    /**
+     * Media fully watched: every distinct episode is `finished` (>=90%), out of the episode
+     * count recorded at play time (`totalEpisodes`). Legacy entries without `totalEpisodes`
+     * only count for single-entry media (movies), where one finished entry is the whole thing.
+     * One representative entry (the most recent) per media, ordered by `updatedAt` descending.
+     */
+    fun completed(): List<HistoryEntry> =
+        state.history
+            .groupBy { it.providerId to it.mediaId }
+            .values
+            .mapNotNull { entries ->
+                val total = entries.firstNotNullOfOrNull { it.totalEpisodes }
+                val finishedCount = entries.filter { it.finished }.distinctBy { it.episodeId }.size
+                val done = if (total != null) finishedCount >= total else entries.size == 1 && entries.single().finished
+                if (done) entries.first() else null
+            }
+            .sortedByDescending { it.updatedAt }
+
     suspend fun addToWatchlist(req: AddWatchlistRequest): LibraryItem = mutex.withLock {
         val item = LibraryItem(
             providerId = req.providerId,
@@ -84,6 +102,7 @@ class LibraryStore(private val stateDir: File) {
             positionSeconds = req.positionSeconds,
             durationSeconds = req.durationSeconds,
             updatedAt = Instant.now().toString(),
+            totalEpisodes = req.totalEpisodes,
         )
         val rest = state.history.filterNot {
             it.providerId == req.providerId && it.episodeId == req.episodeId

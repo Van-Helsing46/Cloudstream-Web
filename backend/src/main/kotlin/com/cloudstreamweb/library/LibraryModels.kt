@@ -39,6 +39,8 @@ data class HistoryEntry(
     val positionSeconds: Double,
     val durationSeconds: Double? = null,
     val updatedAt: String,         // ISO-8601
+    /** Episode count of the media at the time this was recorded (frontend-supplied; null for legacy entries). */
+    val totalEpisodes: Int? = null,
 ) {
     /** Considered "finished" past 90%: not offered as "continue watching". */
     val finished: Boolean
@@ -75,6 +77,7 @@ data class ProgressRequest(
     val posterUrl: String? = null,
     val positionSeconds: Double,
     val durationSeconds: Double? = null,
+    val totalEpisodes: Int? = null,
 )
 
 // ---- Profiles (Netflix-style multi-user) ----

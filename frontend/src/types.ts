@@ -37,6 +37,7 @@ export interface Episode {
   season?: number | null;
   episode?: number | null;
   posterUrl?: string | null;
+  description?: string | null;
 }
 
 export interface MediaDetail {
@@ -131,6 +132,7 @@ export interface HistoryEntry {
   positionSeconds: number;
   durationSeconds?: number | null;
   updatedAt: string;
+  totalEpisodes?: number | null;
 }
 
 export interface ProgressRequest {
@@ -144,6 +146,7 @@ export interface ProgressRequest {
   posterUrl?: string | null;
   positionSeconds: number;
   durationSeconds?: number | null;
+  totalEpisodes?: number | null;
 }
 
 // ---- Profiles (multi-user) ----

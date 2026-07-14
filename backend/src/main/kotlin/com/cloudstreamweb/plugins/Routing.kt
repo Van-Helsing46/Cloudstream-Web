@@ -43,6 +43,24 @@ import java.io.ByteArrayOutputStream
 @Serializable
 data class AddRepositoryRequest(val url: String)
 
+/**
+ * Maps a provider-call failure to a clean response instead of leaking the raw exception
+ * class name (e.g. a bare "NullPointerException" from a scraper that got an unparseable page —
+ * typically a Cloudflare challenge it could not solve). `code` lets the frontend show a
+ * localized, actionable message; `error` stays as a debug hint (the real message, or a
+ * neutral fallback for message-less exceptions like NPE).
+ */
+private suspend fun RoutingContext.respondProviderFailure(t: Throwable) {
+    val raw = t.message?.takeIf { it.isNotBlank() }
+    call.respond(
+        HttpStatusCode.BadGateway,
+        mapOf(
+            "error" to (raw ?: "provider request failed"),
+            "code" to if (raw == null) "unresolved" else "provider",
+        ),
+    )
+}
+
 @Serializable
 data class LoginRequest(val password: String)
 
@@ -195,12 +213,7 @@ fun Application.configureRouting(
                     .onSuccess { call.respond(it) }
                     // Scraper failures (site drift, Cloudflare, timeout) are an upstream 502, not a
                     // generic 500 — and the real message is the only clue the user gets.
-                    .onFailure {
-                        call.respond(
-                            HttpStatusCode.BadGateway,
-                            mapOf("error" to (it.message ?: it::class.simpleName ?: "provider error")),
-                        )
-                    }
+                    .onFailure { respondProviderFailure(it) }
             }
 
             // Streaming link resolution
@@ -211,12 +224,7 @@ fun Application.configureRouting(
                     ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown provider"))
                 runCatching { withTimeout(config.providerSearchTimeoutMs) { provider.loadLinks(id) } }
                     .onSuccess { call.respond(it) }
-                    .onFailure {
-                        call.respond(
-                            HttpStatusCode.BadGateway,
-                            mapOf("error" to (it.message ?: it::class.simpleName ?: "provider error")),
-                        )
-                    }
+                    .onFailure { respondProviderFailure(it) }
             }
 
             // ---- Extension management ----
@@ -407,10 +415,18 @@ fun Application.configureRouting(
                 }
 
                 // History; ?continue=true → one entry per series/movie, finished ones excluded
+                // ?completed=true → media fully watched (every episode finished)
                 get("/history") {
                     val library = libraryOrRespond() ?: return@get
                     val onlyContinue = call.request.queryParameters["continue"]?.toBoolean() ?: false
-                    call.respond(if (onlyContinue) library.continueWatching() else library.history())
+                    val onlyCompleted = call.request.queryParameters["completed"]?.toBoolean() ?: false
+                    call.respond(
+                        when {
+                            onlyCompleted -> library.completed()
+                            onlyContinue -> library.continueWatching()
+                            else -> library.history()
+                        },
+                    )
                 }
 
                 // Saved position for an episode (for the player's resume)

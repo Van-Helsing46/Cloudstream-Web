@@ -11,21 +11,27 @@ import type { StreamLink } from "../types";
  * Resume: `resumeAt` seeks the video on start; `onProgress` is called periodically
  * (and on pause) with the current position/duration, so the page can persist them.
  */
+export type ProgressReason = "interval" | "pause" | "unmount" | "ended";
+
 export function Player({
   link,
   resumeAt,
   onProgress,
+  onEnded,
 }: {
   link: StreamLink;
   resumeAt?: number;
-  onProgress?: (positionSeconds: number, durationSeconds: number) => void;
+  onProgress?: (positionSeconds: number, durationSeconds: number, reason: ProgressReason) => void;
+  onEnded?: () => void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const src = streamProxyUrl(link);
 
-  // Always-fresh ref so listeners are not recreated on every render.
+  // Always-fresh refs so listeners are not recreated on every render.
   const progressRef = useRef(onProgress);
   progressRef.current = onProgress;
+  const endedRef = useRef(onEnded);
+  endedRef.current = onEnded;
 
   useEffect(() => {
     const video = videoRef.current;
@@ -49,21 +55,29 @@ export function Player({
     };
     video.addEventListener("loadedmetadata", doResume);
 
-    const report = () => {
+    const report = (reason: ProgressReason) => {
       if (video.duration && !Number.isNaN(video.duration)) {
-        progressRef.current?.(video.currentTime, video.duration);
+        progressRef.current?.(video.currentTime, video.duration, reason);
       }
     };
-    const interval = window.setInterval(() => {
-      if (!video.paused) report();
-    }, 10_000);
-    video.addEventListener("pause", report);
+    const onInterval = () => {
+      if (!video.paused) report("interval");
+    };
+    const onPause = () => report("pause");
+    const handleEnded = () => {
+      report("ended");
+      endedRef.current?.();
+    };
+    const interval = window.setInterval(onInterval, 10_000);
+    video.addEventListener("pause", onPause);
+    video.addEventListener("ended", handleEnded);
 
     return () => {
       window.clearInterval(interval);
       video.removeEventListener("loadedmetadata", doResume);
-      video.removeEventListener("pause", report);
-      report(); // save the last position on unmount
+      video.removeEventListener("pause", onPause);
+      video.removeEventListener("ended", handleEnded);
+      report("unmount"); // save the last position on unmount
       hls?.destroy();
     };
   }, [link, src, resumeAt]);

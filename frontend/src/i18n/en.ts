@@ -11,6 +11,13 @@ export const en = {
     switchProfile: "Switch profile",
   },
   notFound: "Page not found.",
+  mediaType: {
+    MOVIE: "Movie",
+    TV_SERIES: "TV series",
+    ANIME: "Anime",
+    LIVE: "Live",
+    OTHER: "Other",
+  },
   home: {
     loadingProviders: "Loading providers…",
     backendUnreachable: "Backend unreachable.",
@@ -20,6 +27,20 @@ export const en = {
     noSections: "This provider has no home sections.",
     details: "Details",
     top10: "Top 10 today",
+    allGenres: "All genres",
+    genre: {
+      action: "Action",
+      comedy: "Comedy",
+      drama: "Drama",
+      horror: "Horror",
+      scifi: "Sci-fi",
+      fantasy: "Fantasy",
+      animation: "Animation",
+      thriller: "Thriller",
+      documentary: "Documentary",
+      romance: "Romance",
+      kids: "Family",
+    },
   },
   search: {
     placeholder: "Search for a title…",
@@ -48,7 +69,13 @@ export const en = {
     badgeInProgress: "In progress",
     badgeWatched: "Watched ✓",
     noSource: "No source available for this content.",
+    sourceUnavailable:
+      "Couldn't get a playable source from this provider. It may be temporarily unavailable or protected by an anti-bot check (Cloudflare) — in that case FlareSolverr needs to be configured.",
     back: "Back",
+    fullscreen: "Fullscreen",
+    nextEpisode: "Next episode",
+    playNow: "Play now",
+    cancel: "Cancel",
   },
   library: {
     title: "Library",
@@ -56,6 +83,8 @@ export const en = {
     nothingToResume: "Nothing to resume.",
     watchlist: "Watchlist",
     emptyWatchlist: "The watchlist is empty. Add titles from the detail page.",
+    recentlyWatched: "Recently watched",
+    emptyCompleted: "No titles finished yet.",
   },
   extensions: {
     title: "Extensions",

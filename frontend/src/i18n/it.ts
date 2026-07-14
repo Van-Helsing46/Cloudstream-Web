@@ -13,6 +13,13 @@ export const it = {
     switchProfile: "Cambia profilo",
   },
   notFound: "Pagina non trovata.",
+  mediaType: {
+    MOVIE: "Film",
+    TV_SERIES: "Serie TV",
+    ANIME: "Anime",
+    LIVE: "Live",
+    OTHER: "Altro",
+  },
   home: {
     loadingProviders: "Carico i provider…",
     backendUnreachable: "Backend non raggiungibile.",
@@ -22,6 +29,20 @@ export const it = {
     noSections: "Questo provider non ha sezioni in home.",
     details: "Dettagli",
     top10: "Top 10 di oggi",
+    allGenres: "Tutti i generi",
+    genre: {
+      action: "Azione",
+      comedy: "Commedia",
+      drama: "Dramma",
+      horror: "Horror",
+      scifi: "Fantascienza",
+      fantasy: "Fantasy",
+      animation: "Animazione",
+      thriller: "Thriller",
+      documentary: "Documentari",
+      romance: "Romantico",
+      kids: "Famiglia",
+    },
   },
   search: {
     placeholder: "Cerca un titolo…",
@@ -50,7 +71,13 @@ export const it = {
     badgeInProgress: "In corso",
     badgeWatched: "Visto ✓",
     noSource: "Nessuna fonte disponibile per questo contenuto.",
+    sourceUnavailable:
+      "Impossibile ottenere una sorgente riproducibile da questo provider. Potrebbe essere temporaneamente non disponibile o protetto da un controllo anti-bot (Cloudflare) — in tal caso va configurato FlareSolverr.",
     back: "Indietro",
+    fullscreen: "Schermo intero",
+    nextEpisode: "Prossimo episodio",
+    playNow: "Riproduci ora",
+    cancel: "Annulla",
   },
   library: {
     title: "Libreria",
@@ -58,6 +85,8 @@ export const it = {
     nothingToResume: "Niente da riprendere.",
     watchlist: "Watchlist",
     emptyWatchlist: "La watchlist è vuota. Aggiungi titoli dalla pagina dettaglio.",
+    recentlyWatched: "Recentemente visti",
+    emptyCompleted: "Nessun titolo ancora completato.",
   },
   extensions: {
     title: "Estensioni",

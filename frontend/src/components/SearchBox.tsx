@@ -30,8 +30,16 @@ export function SearchBox() {
   }, [query]);
 
   // Close the dropdown on every navigation, regardless of how it was triggered.
+  // Off /search, the typed query has no reason to persist; on /search, keep it in
+  // sync with ?q= so back/forward navigation shows the right text.
   useEffect(() => {
     setOpen(false);
+    if (location.pathname === "/search") {
+      const q = new URLSearchParams(location.search).get("q") ?? "";
+      setQuery(q);
+    } else {
+      setQuery("");
+    }
   }, [location.pathname, location.search]);
 
   useEffect(() => () => window.clearTimeout(blurTimeout.current), []);
@@ -112,7 +120,9 @@ export function SearchBox() {
                 <div className="searchbox-result-info">
                   <span className="searchbox-result-title">{item.title}</span>
                   <span className="searchbox-result-meta muted">
-                    {[item.year, item.type, providerName(item.providerId)].filter(Boolean).join(" · ")}
+                    {[item.year, t(`mediaType.${item.type}`), providerName(item.providerId)]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </span>
                 </div>
               </button>

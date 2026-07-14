@@ -26,18 +26,35 @@ export class UnauthorizedError extends Error {
   }
 }
 
+/**
+ * Raised on non-OK responses. `code` (when the backend sends one) classifies the failure
+ * so the UI can show a localized, actionable message instead of a raw backend string —
+ * e.g. "unresolved" for a scraper that couldn't get a playable source.
+ */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
   if (res.status === 401) throw new UnauthorizedError();
   if (!res.ok) {
     let message = `Request failed (${res.status})`;
+    let code: string | undefined;
     try {
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; code?: string };
       if (body.error) message = body.error;
+      code = body.code;
     } catch {
       /* non-JSON body: keep the generic message */
     }
-    throw new Error(message);
+    throw new ApiError(message, code);
   }
   return res.json() as Promise<T>;
 }
@@ -195,6 +212,11 @@ export const api = {
       ),
     continueWatching: () =>
       request<HistoryEntry[]>("/library/history?continue=true", {
+        headers: profileHeaders(),
+      }),
+    /** Media fully watched (every episode finished), most recent first. */
+    completed: () =>
+      request<HistoryEntry[]>("/library/history?completed=true", {
         headers: profileHeaders(),
       }),
     // 204 → no saved position: return null.
