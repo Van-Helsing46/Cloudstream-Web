@@ -175,6 +175,7 @@ function ExtensionRow({
         </div>
         {plugin.description && <div className="muted ext-desc">{plugin.description}</div>}
         <div className="ext-meta muted">
+          {plugin.sourceRepositories.length > 0 && `${plugin.sourceRepositories.join(", ")} · `}
           {plugin.language ?? "?"} · {plugin.tvTypes.join(", ")}
         </div>
       </div>

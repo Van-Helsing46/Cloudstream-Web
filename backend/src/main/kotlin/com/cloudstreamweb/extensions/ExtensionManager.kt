@@ -77,31 +77,45 @@ class ExtensionManager(
         state.repositories.size < before
     }
 
-    /** Aggregated plugin catalog across all registered repositories. */
+    /**
+     * Aggregated plugin catalog across all registered repositories. The same `internalName` can be
+     * listed by more than one registered repository (e.g. a popular provider mirrored by several
+     * repos): every manifest is tagged with the [RepositoryRef] that listed it before merging, so
+     * the UI can show all of them instead of one arbitrary winner. When they disagree on the
+     * version, the highest one is canonical (used for name/description/install/update); the
+     * repository names shown are the union of all repos that list the extension, regardless of
+     * which version they had.
+     */
     suspend fun listAvailable(): List<AvailablePlugin> {
         val installedByName = state.installed.associateBy { it.internalName }
-        return state.repositories
-            .flatMap { repo -> repo.pluginLists }
-            .distinct()
-            .flatMap { listUrl -> fetchPluginList(listUrl) }
-            .distinctBy { it.internalName }
-            .map { m ->
+        val listCache = mutableMapOf<String, List<PluginManifest>>()
+        val taggedManifests: List<Pair<RepositoryRef, PluginManifest>> = state.repositories.flatMap { repo ->
+            repo.pluginLists.distinct()
+                .flatMap { url -> listCache.getOrPut(url) { fetchPluginList(url) } }
+                .map { repo to it }
+        }
+        return taggedManifests
+            .groupBy { (_, manifest) -> manifest.internalName }
+            .map { (internalName, entries) ->
+                val canonical = entries.maxBy { (_, manifest) -> manifest.version }.second
+                val sourceRepositories = entries.map { (repo, _) -> repo.name }.distinct()
                 AvailablePlugin(
-                    internalName = m.internalName,
-                    name = m.name,
-                    version = m.version,
-                    status = m.status,
-                    description = m.description,
-                    language = m.language,
-                    tvTypes = m.tvTypes,
-                    iconUrl = m.iconUrl,
-                    repositoryUrl = m.repositoryUrl,
-                    installedVersion = installedByName[m.internalName]?.version,
+                    internalName = internalName,
+                    name = canonical.name,
+                    version = canonical.version,
+                    status = canonical.status,
+                    description = canonical.description,
+                    language = canonical.language,
+                    tvTypes = canonical.tvTypes,
+                    iconUrl = canonical.iconUrl,
+                    repositoryUrl = canonical.repositoryUrl,
+                    sourceRepositories = sourceRepositories,
+                    installedVersion = installedByName[internalName]?.version,
                     // Executable if a runtime already knows it, or if a runtime will attempt any
                     // extension on demand (dynamic DEX / recompile-from-source).
-                    runtimeSupported = m.internalName in runtime.supported || runtime.attemptsAnyExtension,
-                    active = installedByName[m.internalName]?.active,
-                    activationError = installedByName[m.internalName]?.activationError,
+                    runtimeSupported = internalName in runtime.supported || runtime.attemptsAnyExtension,
+                    active = installedByName[internalName]?.active,
+                    activationError = installedByName[internalName]?.activationError,
                 )
             }
     }
@@ -224,12 +238,14 @@ class ExtensionManager(
         save()
     }
 
+    /** Highest-version manifest across all repositories listing [internalName] (see [listAvailable]). */
     private suspend fun findManifest(internalName: String): PluginManifest? =
         state.repositories
             .flatMap { it.pluginLists }
             .distinct()
             .flatMap { fetchPluginList(it) }
-            .firstOrNull { it.internalName == internalName }
+            .filter { it.internalName == internalName }
+            .maxByOrNull { it.version }
 
     private suspend fun fetchPluginList(url: String): List<PluginManifest> =
         json.decodeFromString(withTimeout(NETWORK_TIMEOUT_MS) { http.get(url).bodyAsText() })

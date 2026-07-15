@@ -84,6 +84,8 @@ data class AvailablePlugin(
     val tvTypes: List<String> = emptyList(),
     val iconUrl: String? = null,
     val repositoryUrl: String? = null,
+    /** Display names of the user's registered repositories that list this extension (can be more than one). */
+    val sourceRepositories: List<String> = emptyList(),
     /** Locally installed version, if any. */
     val installedVersion: Int? = null,
     /**

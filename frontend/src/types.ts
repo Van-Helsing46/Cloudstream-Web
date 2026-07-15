@@ -84,6 +84,7 @@ export interface AvailablePlugin {
   tvTypes: string[];
   iconUrl?: string | null;
   repositoryUrl?: string | null;
+  sourceRepositories: string[];
   installedVersion?: number | null;
   runtimeSupported: boolean;
   active?: boolean | null;
