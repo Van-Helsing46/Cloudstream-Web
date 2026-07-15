@@ -100,6 +100,8 @@ export const it = {
     installedPlain: "{name} installata.",
     upToDate: "Già aggiornata.",
     updated: "Aggiornata.",
+    updateAll: "Aggiorna tutto",
+    updateAllResult: "{updated} aggiornate, {upToDate} già aggiornate, {failed} fallite.",
     catalog: "Catalogo",
     loadingCatalog: "Carico il catalogo…",
     notExecutable: "non eseguibile",

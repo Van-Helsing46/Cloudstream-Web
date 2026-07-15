@@ -263,6 +263,13 @@ fun Application.configureRouting(
                     call.respond(extensionManager.installed())
                 }
 
+                // Updates every installed extension at once (manual button + the daily schedule
+                // in Application.kt share this). Never fails outright: per-extension errors are
+                // reported inside the summary.
+                post("/update-all") {
+                    call.respond(extensionManager.updateAll())
+                }
+
                 post("/{internalName}/install") {
                     val name = call.parameters.getOrFail("internalName")
                     runCatching { extensionManager.install(name) }

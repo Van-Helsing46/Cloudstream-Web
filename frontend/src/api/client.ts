@@ -12,6 +12,7 @@ import type {
   RepositoryRef,
   SearchResponse,
   StreamLink,
+  UpdateAllSummary,
   UpdateProfileRequest,
 } from "../types";
 
@@ -161,6 +162,7 @@ export const api = {
       request<{ uninstalled: string }>(`/extensions/${internalName}`, {
         method: "DELETE",
       }),
+    updateAll: () => request<UpdateAllSummary>("/extensions/update-all", { method: "POST" }),
   },
 
   // ---- Profiles (multi-user) ----

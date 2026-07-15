@@ -84,6 +84,7 @@ export interface AvailablePlugin {
   tvTypes: string[];
   iconUrl?: string | null;
   repositoryUrl?: string | null;
+  sourceRepositories: string[];
   installedVersion?: number | null;
   runtimeSupported: boolean;
   active?: boolean | null;
@@ -106,6 +107,24 @@ export interface InstallResult {
   extension: InstalledExtension;
   runtimeActive: boolean;
   message?: string | null;
+}
+
+export interface UpdatedExtension {
+  internalName: string;
+  name: string;
+  fromVersion: number;
+  toVersion: number;
+}
+
+export interface FailedUpdate {
+  internalName: string;
+  error: string;
+}
+
+export interface UpdateAllSummary {
+  updated: UpdatedExtension[];
+  upToDate: string[];
+  failed: FailedUpdate[];
 }
 
 // ---- User library (aligned with library/LibraryModels.kt) ----

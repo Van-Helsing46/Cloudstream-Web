@@ -84,6 +84,8 @@ data class AvailablePlugin(
     val tvTypes: List<String> = emptyList(),
     val iconUrl: String? = null,
     val repositoryUrl: String? = null,
+    /** Display names of the user's registered repositories that list this extension (can be more than one). */
+    val sourceRepositories: List<String> = emptyList(),
     /** Locally installed version, if any. */
     val installedVersion: Int? = null,
     /**
@@ -104,4 +106,29 @@ data class InstallResult(
     /** true if the provider has been registered and can be queried via /api/v1. */
     val runtimeActive: Boolean,
     val message: String? = null,
+)
+
+/** One extension bumped to a newer version by [ExtensionManager.updateAll]. */
+@Serializable
+data class UpdatedExtension(
+    val internalName: String,
+    val name: String,
+    val fromVersion: Int,
+    val toVersion: Int,
+)
+
+/** One extension that failed to update in an [ExtensionManager.updateAll] pass. */
+@Serializable
+data class FailedUpdate(
+    val internalName: String,
+    val error: String,
+)
+
+/** Outcome of updating every installed extension at once (manual button or the daily schedule). */
+@Serializable
+data class UpdateAllSummary(
+    val updated: List<UpdatedExtension>,
+    /** internalNames already at the latest version found in the registered repositories. */
+    val upToDate: List<String>,
+    val failed: List<FailedUpdate>,
 )

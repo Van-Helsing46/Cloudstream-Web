@@ -5,6 +5,8 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -77,31 +79,45 @@ class ExtensionManager(
         state.repositories.size < before
     }
 
-    /** Aggregated plugin catalog across all registered repositories. */
+    /**
+     * Aggregated plugin catalog across all registered repositories. The same `internalName` can be
+     * listed by more than one registered repository (e.g. a popular provider mirrored by several
+     * repos): every manifest is tagged with the [RepositoryRef] that listed it before merging, so
+     * the UI can show all of them instead of one arbitrary winner. When they disagree on the
+     * version, the highest one is canonical (used for name/description/install/update); the
+     * repository names shown are the union of all repos that list the extension, regardless of
+     * which version they had.
+     */
     suspend fun listAvailable(): List<AvailablePlugin> {
         val installedByName = state.installed.associateBy { it.internalName }
-        return state.repositories
-            .flatMap { repo -> repo.pluginLists }
-            .distinct()
-            .flatMap { listUrl -> fetchPluginList(listUrl) }
-            .distinctBy { it.internalName }
-            .map { m ->
+        val listCache = mutableMapOf<String, List<PluginManifest>>()
+        val taggedManifests: List<Pair<RepositoryRef, PluginManifest>> = state.repositories.flatMap { repo ->
+            repo.pluginLists.distinct()
+                .flatMap { url -> listCache.getOrPut(url) { fetchPluginList(url) } }
+                .map { repo to it }
+        }
+        return taggedManifests
+            .groupBy { (_, manifest) -> manifest.internalName }
+            .map { (internalName, entries) ->
+                val canonical = entries.maxBy { (_, manifest) -> manifest.version }.second
+                val sourceRepositories = entries.map { (repo, _) -> repo.name }.distinct()
                 AvailablePlugin(
-                    internalName = m.internalName,
-                    name = m.name,
-                    version = m.version,
-                    status = m.status,
-                    description = m.description,
-                    language = m.language,
-                    tvTypes = m.tvTypes,
-                    iconUrl = m.iconUrl,
-                    repositoryUrl = m.repositoryUrl,
-                    installedVersion = installedByName[m.internalName]?.version,
+                    internalName = internalName,
+                    name = canonical.name,
+                    version = canonical.version,
+                    status = canonical.status,
+                    description = canonical.description,
+                    language = canonical.language,
+                    tvTypes = canonical.tvTypes,
+                    iconUrl = canonical.iconUrl,
+                    repositoryUrl = canonical.repositoryUrl,
+                    sourceRepositories = sourceRepositories,
+                    installedVersion = installedByName[internalName]?.version,
                     // Executable if a runtime already knows it, or if a runtime will attempt any
                     // extension on demand (dynamic DEX / recompile-from-source).
-                    runtimeSupported = m.internalName in runtime.supported || runtime.attemptsAnyExtension,
-                    active = installedByName[m.internalName]?.active,
-                    activationError = installedByName[m.internalName]?.activationError,
+                    runtimeSupported = internalName in runtime.supported || runtime.attemptsAnyExtension,
+                    active = installedByName[internalName]?.active,
+                    activationError = installedByName[internalName]?.activationError,
                 )
             }
     }
@@ -124,6 +140,43 @@ class ExtensionManager(
             ?: throw NoSuchElementException("Plugin '$internalName' no longer present in the repositories")
         if (manifest.version <= current.version) return null
         return installFromManifest(manifest)
+    }
+
+    /**
+     * Runs [update] for every installed extension (concurrently — each does its own network I/O,
+     * only the brief state write at the end of an update is serialized by [mutex]). Used by both
+     * the manual "update all" button and the daily schedule (see `Application.kt`): a single source
+     * of truth for "what does refreshing everything mean" instead of duplicating the loop in two
+     * places. Never throws: a per-extension failure (unreachable repo, no longer listed, bad hash)
+     * is captured in [UpdateAllSummary.failed] instead of aborting the rest.
+     */
+    suspend fun updateAll(): UpdateAllSummary = coroutineScope {
+        data class Outcome(val ext: InstalledExtension, val result: Result<InstallResult?>)
+        val outcomes = state.installed
+            .map { ext -> async { Outcome(ext, runCatching { update(ext.internalName) }) } }
+            .map { it.await() }
+
+        val updated = mutableListOf<UpdatedExtension>()
+        val upToDate = mutableListOf<String>()
+        val failed = mutableListOf<FailedUpdate>()
+        for ((ext, result) in outcomes) {
+            result.fold(
+                onSuccess = { installResult ->
+                    if (installResult == null) {
+                        upToDate += ext.internalName
+                    } else {
+                        updated += UpdatedExtension(
+                            internalName = ext.internalName,
+                            name = installResult.extension.name,
+                            fromVersion = ext.version,
+                            toVersion = installResult.extension.version,
+                        )
+                    }
+                },
+                onFailure = { failed += FailedUpdate(ext.internalName, it.message ?: "update failed") },
+            )
+        }
+        UpdateAllSummary(updated, upToDate, failed)
     }
 
     suspend fun uninstall(internalName: String): Boolean = mutex.withLock {
@@ -224,12 +277,14 @@ class ExtensionManager(
         save()
     }
 
+    /** Highest-version manifest across all repositories listing [internalName] (see [listAvailable]). */
     private suspend fun findManifest(internalName: String): PluginManifest? =
         state.repositories
             .flatMap { it.pluginLists }
             .distinct()
             .flatMap { fetchPluginList(it) }
-            .firstOrNull { it.internalName == internalName }
+            .filter { it.internalName == internalName }
+            .maxByOrNull { it.version }
 
     private suspend fun fetchPluginList(url: String): List<PluginManifest> =
         json.decodeFromString(withTimeout(NETWORK_TIMEOUT_MS) { http.get(url).bodyAsText() })
