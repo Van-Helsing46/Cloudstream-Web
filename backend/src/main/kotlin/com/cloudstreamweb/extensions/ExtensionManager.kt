@@ -5,6 +5,8 @@ import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.statement.bodyAsBytes
 import io.ktor.client.statement.bodyAsText
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
@@ -138,6 +140,43 @@ class ExtensionManager(
             ?: throw NoSuchElementException("Plugin '$internalName' no longer present in the repositories")
         if (manifest.version <= current.version) return null
         return installFromManifest(manifest)
+    }
+
+    /**
+     * Runs [update] for every installed extension (concurrently — each does its own network I/O,
+     * only the brief state write at the end of an update is serialized by [mutex]). Used by both
+     * the manual "update all" button and the daily schedule (see `Application.kt`): a single source
+     * of truth for "what does refreshing everything mean" instead of duplicating the loop in two
+     * places. Never throws: a per-extension failure (unreachable repo, no longer listed, bad hash)
+     * is captured in [UpdateAllSummary.failed] instead of aborting the rest.
+     */
+    suspend fun updateAll(): UpdateAllSummary = coroutineScope {
+        data class Outcome(val ext: InstalledExtension, val result: Result<InstallResult?>)
+        val outcomes = state.installed
+            .map { ext -> async { Outcome(ext, runCatching { update(ext.internalName) }) } }
+            .map { it.await() }
+
+        val updated = mutableListOf<UpdatedExtension>()
+        val upToDate = mutableListOf<String>()
+        val failed = mutableListOf<FailedUpdate>()
+        for ((ext, result) in outcomes) {
+            result.fold(
+                onSuccess = { installResult ->
+                    if (installResult == null) {
+                        upToDate += ext.internalName
+                    } else {
+                        updated += UpdatedExtension(
+                            internalName = ext.internalName,
+                            name = installResult.extension.name,
+                            fromVersion = ext.version,
+                            toVersion = installResult.extension.version,
+                        )
+                    }
+                },
+                onFailure = { failed += FailedUpdate(ext.internalName, it.message ?: "update failed") },
+            )
+        }
+        UpdateAllSummary(updated, upToDate, failed)
     }
 
     suspend fun uninstall(internalName: String): Boolean = mutex.withLock {

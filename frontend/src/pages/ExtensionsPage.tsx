@@ -63,8 +63,27 @@ export function ExtensionsPage() {
     onSuccess: invalidate,
   });
 
+  const updateAll = useMutation({
+    mutationFn: api.extensions.updateAll,
+    onSuccess: (summary) => {
+      show(
+        t("extensions.updateAllResult", {
+          updated: summary.updated.length,
+          upToDate: summary.upToDate.length,
+          failed: summary.failed.length,
+        }),
+      );
+      invalidate();
+    },
+    onError: (e) => show(e instanceof Error ? e.message : String(e)),
+  });
+
   const busy =
-    addRepo.isPending || install.isPending || update.isPending || uninstall.isPending;
+    addRepo.isPending ||
+    install.isPending ||
+    update.isPending ||
+    uninstall.isPending ||
+    updateAll.isPending;
 
   return (
     <>
@@ -106,7 +125,14 @@ export function ExtensionsPage() {
         </section>
 
         <section>
-          <h2 className="rail-title">{t("extensions.catalog")}</h2>
+          <div className="page-head">
+            <h2 className="rail-title">{t("extensions.catalog")}</h2>
+            {(repos.data?.length ?? 0) > 0 && (
+              <button onClick={() => updateAll.mutate()} disabled={busy}>
+                {t("extensions.updateAll")}
+              </button>
+            )}
+          </div>
           {catalog.isLoading && <p className="muted">{t("extensions.loadingCatalog")}</p>}
           {catalog.isError && <p className="error">{String(catalog.error)}</p>}
           <div className="ext-grid">

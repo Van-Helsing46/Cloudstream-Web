@@ -76,6 +76,33 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
         extensionManager.activateInstalled()
     }
 
+    // Daily auto-update of every installed extension, at ~04:00 local server time. Installed
+    // extensions otherwise stay pinned to the version they were installed at forever (the catalog
+    // view is always live, but nothing re-installs a newer version on its own) — this and the
+    // manual "update all" button in the UI are the only two ways that happens, both going through
+    // ExtensionManager.updateAll(). `while (true)` + `delay()` is cancelled cleanly by the
+    // Application scope on shutdown, no manual isActive check needed.
+    launch(kotlinx.coroutines.Dispatchers.IO) {
+        while (true) {
+            val now = java.time.LocalDateTime.now()
+            var next = now.withHour(4).withMinute(0).withSecond(0).withNano(0)
+            if (!next.isAfter(now)) next = next.plusDays(1)
+            environment.log.info("Next scheduled extension update check: {}", next)
+            kotlinx.coroutines.delay(java.time.Duration.between(now, next).toMillis())
+            runCatching { extensionManager.updateAll() }
+                .onSuccess { summary ->
+                    environment.log.info(
+                        "Scheduled extension update: {} updated, {} up to date, {} failed{}",
+                        summary.updated.size,
+                        summary.upToDate.size,
+                        summary.failed.size,
+                        if (summary.failed.isEmpty()) "" else " (${summary.failed.joinToString { it.internalName }})",
+                    )
+                }
+                .onFailure { environment.log.warn("Scheduled extension update check failed: {}", it.message) }
+        }
+    }
+
     // Per-profile library (multi-user) + migration from the single-user format
     val librariesDir = File(config.dataDir, "library")
     val profiles = ProfileStore(

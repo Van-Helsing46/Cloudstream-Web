@@ -98,6 +98,8 @@ export const en = {
     installedPlain: "{name} installed.",
     upToDate: "Already up to date.",
     updated: "Updated.",
+    updateAll: "Update all",
+    updateAllResult: "{updated} updated, {upToDate} already up to date, {failed} failed.",
     catalog: "Catalog",
     loadingCatalog: "Loading the catalog…",
     notExecutable: "not executable",

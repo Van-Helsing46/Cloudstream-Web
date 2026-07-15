@@ -109,6 +109,24 @@ export interface InstallResult {
   message?: string | null;
 }
 
+export interface UpdatedExtension {
+  internalName: string;
+  name: string;
+  fromVersion: number;
+  toVersion: number;
+}
+
+export interface FailedUpdate {
+  internalName: string;
+  error: string;
+}
+
+export interface UpdateAllSummary {
+  updated: UpdatedExtension[];
+  upToDate: string[];
+  failed: FailedUpdate[];
+}
+
 // ---- User library (aligned with library/LibraryModels.kt) ----
 
 export interface LibraryItem {

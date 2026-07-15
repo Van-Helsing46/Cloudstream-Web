@@ -107,3 +107,28 @@ data class InstallResult(
     val runtimeActive: Boolean,
     val message: String? = null,
 )
+
+/** One extension bumped to a newer version by [ExtensionManager.updateAll]. */
+@Serializable
+data class UpdatedExtension(
+    val internalName: String,
+    val name: String,
+    val fromVersion: Int,
+    val toVersion: Int,
+)
+
+/** One extension that failed to update in an [ExtensionManager.updateAll] pass. */
+@Serializable
+data class FailedUpdate(
+    val internalName: String,
+    val error: String,
+)
+
+/** Outcome of updating every installed extension at once (manual button or the daily schedule). */
+@Serializable
+data class UpdateAllSummary(
+    val updated: List<UpdatedExtension>,
+    /** internalNames already at the latest version found in the registered repositories. */
+    val upToDate: List<String>,
+    val failed: List<FailedUpdate>,
+)
