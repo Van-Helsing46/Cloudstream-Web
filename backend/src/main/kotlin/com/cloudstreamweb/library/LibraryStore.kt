@@ -26,13 +26,19 @@ class LibraryStore(private val stateDir: File) {
     fun history(): List<HistoryEntry> = state.history
 
     /**
-     * "Continue watching" entries, one per series/movie: for each (providerId, mediaId)
-     * the most recent entry (history is ordered by updatedAt descending), finished ones excluded.
+     * "Continue watching" entries, one per series/movie: for each (providerId, mediaId) the most
+     * recent entry (history is ordered by updatedAt descending), excluding media that's fully
+     * [completed]. This is NOT "exclude entries whose single most-recent entry is finished" —
+     * that would drop a series the moment you finish whichever episode you watched last, even
+     * with plenty of unwatched episodes left (the bug: finishing an episode doesn't mean you're
+     * done with the series). Completion is evaluated across the whole series, same as [completed].
      */
-    fun continueWatching(): List<HistoryEntry> =
-        state.history
+    fun continueWatching(): List<HistoryEntry> {
+        val completedKeys = completed().map { it.providerId to it.mediaId }.toSet()
+        return state.history
             .distinctBy { it.providerId to it.mediaId }
-            .filterNot { it.finished }
+            .filterNot { (it.providerId to it.mediaId) in completedKeys }
+    }
 
     /** All progress entries of a series/movie (for the detail page: per-episode bars). */
     fun entriesForMedia(providerId: String, mediaId: String): List<HistoryEntry> =
