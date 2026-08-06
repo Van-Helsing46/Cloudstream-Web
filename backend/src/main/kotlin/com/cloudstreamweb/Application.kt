@@ -45,9 +45,25 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
         environment.log.info("Cloudflare solver enabled via FlareSolverr at $url")
     }
 
+    // Resolve hostnames via DNS-over-HTTPS instead of the system/container resolver: some ISPs
+    // hijack DNS for blocked domains (redirecting to a landing page with a self-signed cert),
+    // which otherwise surfaces as a confusing PKIX/certificate error rather than a clean failure.
+    val dns: okhttp3.Dns = if (config.dohEnabled) {
+        com.cloudstreamweb.net.DohDns.create(config.dohUrl, log = environment.log)
+    } else {
+        okhttp3.Dns.SYSTEM
+    }
+    // `app` is the NiceHttp singleton shared by every extension (bundled, recompiled-from-source,
+    // and DEX-loaded — the latter's child classloaders share this parent-loaded singleton), so
+    // patching its client here covers all extension HTTP traffic in one place.
+    com.lagradost.cloudstream3.app.baseClient =
+        com.lagradost.cloudstream3.app.baseClient.newBuilder().dns(dns).build()
+
     // Shared client: extension downloads + streaming proxy (no global request
     // timeout: streams are long-lived).
-    val httpClient = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp)
+    val httpClient = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp) {
+        engine { config { dns(dns) } }
+    }
     val extensionsStateDir = File(config.dataDir, "extensions-state")
     // Order by reliability: bundled (curated) → recompiled-from-source (Strada B automated, max
     // coverage) → dynamic DEX→JAR (Strada A, fast fallback when no source is available).

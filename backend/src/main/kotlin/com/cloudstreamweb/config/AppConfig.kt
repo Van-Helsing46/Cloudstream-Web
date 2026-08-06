@@ -24,6 +24,10 @@ data class AppConfig(
     val frontendDir: File?,
     /** Log format: "json" (structured, prod) or "text" (readable, dev). */
     val logFormat: String,
+    /** Resolve hostnames via DNS-over-HTTPS instead of the system resolver (bypasses ISP DNS blocks/hijacking). */
+    val dohEnabled: Boolean,
+    /** DNS-over-HTTPS endpoint used when [dohEnabled] is true. */
+    val dohUrl: String,
 ) {
     val authEnabled: Boolean get() = !authPassword.isNullOrBlank()
 
@@ -48,6 +52,9 @@ data class AppConfig(
                 flareSolverrUrl = env("FLARESOLVERR_URL")?.takeIf { it.isNotBlank() },
                 frontendDir = frontend?.takeIf { it.isDirectory },
                 logFormat = (env("LOG_FORMAT") ?: "text").lowercase(),
+                dohEnabled = env("DOH_ENABLED")?.toBooleanStrictOrNull() ?: true,
+                dohUrl = env("DOH_URL")?.takeIf { it.isNotBlank() }
+                    ?: "https://cloudflare-dns.com/dns-query",
             )
         }
     }

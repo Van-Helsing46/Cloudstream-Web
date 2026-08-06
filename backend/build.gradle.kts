@@ -79,6 +79,8 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.13.1")
     implementation("com.fasterxml.jackson.core:jackson-annotations:2.13.1")
     implementation("com.github.Blatzar:NiceHttp:0.4.18")
+    // DNS-over-HTTPS: bypasses ISP-level DNS blocking/hijacking on extension source domains.
+    implementation("com.squareup.okhttp3:okhttp-dnsoverhttps:5.3.2")
     // org.json: on Android it ships with the platform; on the JVM the artifact is needed
     implementation("org.json:json:20250107")
 
