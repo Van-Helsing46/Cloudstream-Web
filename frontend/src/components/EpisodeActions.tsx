@@ -61,11 +61,13 @@ function ProgressRing({ progress }: { progress: number | null }) {
  * same choice the player's source chips offer, just made up front instead of after playing.
  */
 export function EpisodeActions({
+  providerId,
   episode,
   filenameBase,
   resolveLinks,
   linksLoading,
 }: {
+  providerId: string;
   episode: Episode;
   filenameBase: string;
   resolveLinks: (episode: Episode) => Promise<StreamLink[]>;
@@ -132,14 +134,23 @@ export function EpisodeActions({
       a.remove();
       return;
     }
-    const res = await api.downloads.start({
+    const job = await api.downloads.start({
+      providerId,
+      episodeId: episode.id,
       url: link.url,
       headers: link.headers,
       isM3u8: true,
       filename: `${filenameBase}.mp4`,
     });
-    rememberJob(episode.id, res.jobId);
-    setJobId(res.jobId);
+    rememberJob(episode.id, job.id);
+    setJobId(job.id);
+    // The backend may have handed back an existing job for this episode instead of a fresh
+    // one (another tab/device already downloading it, or a still-cached finished file) — if
+    // it's already done, grab the file right away instead of leaving the user to click again.
+    if (job.status === "READY") {
+      const token = await api.streamToken();
+      window.location.href = downloadFileUrl(job.id, token);
+    }
   }
 
   async function runAction(action: PendingAction, link: StreamLink) {

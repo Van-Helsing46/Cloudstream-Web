@@ -40,6 +40,15 @@ class DownloadManager(private val config: AppConfig, private val scope: Coroutin
     private val processes = ConcurrentHashMap<String, Process>()
     private val coroutineJobs = ConcurrentHashMap<String, Job>()
 
+    // (providerId, episodeId) -> jobId, so a second request for the same episode — from the
+    // same browser after a localStorage reset, or from a different device entirely — reuses an
+    // in-flight job or a still-cached finished one instead of starting a redundant remux. Not
+    // locked against a start()/start() race (check-then-set on a ConcurrentHashMap): a rare
+    // simultaneous double-click could still create two jobs for one episode, briefly leaking
+    // one — acceptable for personal/LAN scope, not worth a mutex here.
+    private val episodeIndex = ConcurrentHashMap<String, String>()
+    private fun episodeKey(providerId: String, episodeId: String) = "$providerId $episodeId"
+
     // At most 2 concurrent remuxes: ffmpeg is CPU/IO heavy and this runs on a small home server.
     private val semaphore = Semaphore(2)
 
@@ -62,6 +71,11 @@ class DownloadManager(private val config: AppConfig, private val scope: Coroutin
 
     fun start(req: StartDownloadRequest): DownloadJob {
         pruneExpired()
+
+        val key = episodeKey(req.providerId, req.episodeId)
+        val reusable = episodeIndex[key]?.let { jobs[it] }?.takeIf { it.status in RESUMABLE_STATUSES }
+        if (reusable != null) return reusable
+
         val id = UUID.randomUUID().toString()
         val job = DownloadJob(
             id = id,
@@ -70,6 +84,7 @@ class DownloadManager(private val config: AppConfig, private val scope: Coroutin
             createdAt = nowEpochSeconds(),
         )
         jobs[id] = job
+        episodeIndex[key] = id
         coroutineJobs[id] = scope.launch(Dispatchers.IO) { runJob(id, req) }
         return job
     }
@@ -258,6 +273,7 @@ class DownloadManager(private val config: AppConfig, private val scope: Coroutin
     private fun wipeAll() {
         downloadsDir.listFiles()?.forEach { it.delete() }
         jobs.clear()
+        episodeIndex.clear()
     }
 
     private fun pruneExpired() {
@@ -269,5 +285,12 @@ class DownloadManager(private val config: AppConfig, private val scope: Coroutin
                 partFile(job.id).delete()
                 jobs.remove(job.id)
             }
+        // Dangling entries (their job got pruned above, failed, or was canceled): drop them so
+        // a future request for that episode starts a fresh job instead of resolving to nothing.
+        episodeIndex.entries.removeIf { (_, jobId) -> jobs[jobId]?.status !in RESUMABLE_STATUSES }
+    }
+
+    private companion object {
+        val RESUMABLE_STATUSES = setOf(DownloadStatus.QUEUED, DownloadStatus.RUNNING, DownloadStatus.READY)
     }
 }

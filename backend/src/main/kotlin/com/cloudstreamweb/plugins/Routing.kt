@@ -5,7 +5,6 @@ import com.cloudstreamweb.domain.SearchResponse
 import com.cloudstreamweb.download.DownloadManager
 import com.cloudstreamweb.download.DownloadStatus
 import com.cloudstreamweb.download.StartDownloadRequest
-import com.cloudstreamweb.download.StartDownloadResponse
 import com.cloudstreamweb.extensions.ExtensionManager
 import com.cloudstreamweb.library.AddWatchlistRequest
 import com.cloudstreamweb.library.CreateProfileRequest
@@ -498,8 +497,12 @@ fun Application.configureRouting(
                             mapOf("error" to "only HLS sources need a reconstruction job"),
                         )
                     }
+                    // The full job, not just its id: start() may hand back an existing job
+                    // (still running, or already READY) instead of a fresh one — see
+                    // DownloadManager's episode index — so the frontend needs the status right
+                    // away to show progress or download immediately, without an extra round trip.
                     val job = downloadManager.start(req)
-                    call.respond(HttpStatusCode.Accepted, StartDownloadResponse(job.id))
+                    call.respond(HttpStatusCode.Accepted, job)
                 }
 
                 get("/{id}") {

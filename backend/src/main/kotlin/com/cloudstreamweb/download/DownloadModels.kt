@@ -23,11 +23,13 @@ data class DownloadJob(
 
 @Serializable
 data class StartDownloadRequest(
+    /** Identifies the episode for dedup (see [DownloadManager]'s episode index): a second
+     * request for the same (providerId, episodeId) while a job is still active reuses it
+     * instead of starting a redundant remux, and reattaches to a still-cached finished one. */
+    val providerId: String,
+    val episodeId: String,
     val url: String,
     val headers: Map<String, String> = emptyMap(),
     val isM3u8: Boolean,
     val filename: String,
 )
-
-@Serializable
-data class StartDownloadResponse(val jobId: String)

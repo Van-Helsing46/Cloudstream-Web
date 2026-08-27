@@ -202,6 +202,11 @@ export interface DownloadJob {
 }
 
 export interface StartDownloadRequest {
+  /** Identifies the episode for server-side dedup: a second request for the same
+   * (providerId, episodeId) reuses an in-flight or still-cached job instead of starting a
+   * redundant remux. */
+  providerId: string;
+  episodeId: string;
   url: string;
   headers: Record<string, string>;
   isM3u8: boolean;

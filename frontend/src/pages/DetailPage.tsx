@@ -452,6 +452,7 @@ export function DetailPage() {
                       {badge && <span className="episode-badge">{badge}</span>}
                     </button>
                     <EpisodeActions
+                      providerId={providerId}
                       episode={ep}
                       filenameBase={episodeFilenameBase(media.title, ep)}
                       resolveLinks={resolveEpisodeLinks}
