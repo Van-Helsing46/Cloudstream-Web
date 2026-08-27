@@ -1,5 +1,6 @@
 import type {
   AvailablePlugin,
+  DownloadJob,
   HistoryEntry,
   HomeResponse,
   InstalledExtension,
@@ -11,6 +12,7 @@ import type {
   ProviderInfo,
   RepositoryRef,
   SearchResponse,
+  StartDownloadRequest,
   StreamLink,
   UpdateAllSummary,
   UpdateProfileRequest,
@@ -93,6 +95,17 @@ function avatarVersion(id: string): string {
 
 function bumpAvatarVersion(id: string) {
   localStorage.setItem(AVATAR_VERSION_PREFIX + id, String(Date.now()));
+}
+
+let cachedStreamToken: { token: string | null; expiresAt: number | null } | null = null;
+
+async function getStreamToken(): Promise<string | null> {
+  const nowSec = Date.now() / 1000;
+  const stillFresh =
+    cachedStreamToken && (cachedStreamToken.expiresAt == null || cachedStreamToken.expiresAt - 300 > nowSec);
+  if (stillFresh) return cachedStreamToken!.token;
+  cachedStreamToken = await getJson<{ token: string | null; expiresAt: number | null }>("/auth/stream-token");
+  return cachedStreamToken.token;
 }
 
 export const api = {
@@ -244,6 +257,23 @@ export const api = {
         body: JSON.stringify(req),
       }),
   },
+
+  /** Short-lived signed token so a copied stream/download link works outside the browser
+   * session (VLC, curl, download managers). Null when auth is disabled. Cached in-module
+   * until close to expiry, since every "copy link"/"download" click needs one. */
+  streamToken: () => getStreamToken(),
+
+  // ---- HLS→MP4 reconstruction jobs (episode "download" button on non-progressive sources) ----
+  downloads: {
+    start: (req: StartDownloadRequest) =>
+      request<{ jobId: string }>("/downloads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      }),
+    status: (jobId: string) => getJson<DownloadJob>(`/downloads/${jobId}`),
+    cancel: (jobId: string) => request<{ canceled: string }>(`/downloads/${jobId}`, { method: "DELETE" }),
+  },
 };
 
 /**
@@ -256,4 +286,41 @@ export function streamProxyUrl(link: StreamLink): string {
     params.set("headers", JSON.stringify(link.headers));
   }
   return `${BASE}/stream?${params.toString()}`;
+}
+
+/**
+ * Absolute proxy URL meant to leave the browser (copy link / direct `<a download>`): unlike
+ * [streamProxyUrl] it can carry a signed `token` (so it works without the session cookie,
+ * e.g. pasted into VLC) and a `filename` (so a progressive download gets a sane name instead
+ * of the generic "stream").
+ */
+export function externalStreamUrl(
+  link: StreamLink,
+  opts: { token?: string | null; filename?: string } = {},
+): string {
+  const params = new URLSearchParams({ url: link.url });
+  if (Object.keys(link.headers ?? {}).length > 0) {
+    params.set("headers", JSON.stringify(link.headers));
+  }
+  if (opts.token) params.set("token", opts.token);
+  if (opts.filename) params.set("filename", opts.filename);
+  return new URL(`${BASE}/stream?${params.toString()}`, window.location.origin).toString();
+}
+
+/** Absolute URL to download a finished reconstruction job's file. */
+export function downloadFileUrl(jobId: string, token?: string | null): string {
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  return new URL(`${BASE}/downloads/${jobId}/file${qs}`, window.location.origin).toString();
+}
+
+/**
+ * Routes a poster/thumbnail through the backend instead of hotlinking the provider's CDN
+ * directly from the browser: the backend resolves via DNS-over-HTTPS, so posters keep loading
+ * even when the client's own network blocks/hijacks DNS for that domain (common for
+ * streaming-site CDNs on some ISPs/mobile carriers, and easy to hit over a VPN). Same-origin,
+ * so the session cookie (if auth is enabled) is sent automatically — no token needed.
+ */
+export function proxiedImageUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  return `${BASE}/image?url=${encodeURIComponent(url)}`;
 }

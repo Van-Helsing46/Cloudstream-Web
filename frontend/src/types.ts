@@ -185,3 +185,25 @@ export interface UpdateProfileRequest {
   color?: string;
   avatar?: string;
 }
+
+// ---- Downloads (aligned with download/DownloadModels.kt) ----
+
+export type DownloadStatus = "QUEUED" | "RUNNING" | "READY" | "FAILED" | "CANCELED";
+
+export interface DownloadJob {
+  id: string;
+  status: DownloadStatus;
+  /** 0..1, null while the source duration is unknown (indeterminate progress). */
+  progress?: number | null;
+  filename: string;
+  sizeBytes?: number | null;
+  error?: string | null;
+  createdAt: number;
+}
+
+export interface StartDownloadRequest {
+  url: string;
+  headers: Record<string, string>;
+  isM3u8: boolean;
+  filename: string;
+}

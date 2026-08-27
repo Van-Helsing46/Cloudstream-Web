@@ -17,6 +17,9 @@ RUN chmod +x gradlew && ./gradlew --no-daemon shadowJar
 
 # --- Stage 3: runtime ---
 FROM eclipse-temurin:21-jre
+# ffmpeg/ffprobe: remux HLS sources into a downloadable MP4 for the episode "download" button.
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Backend fat jar (versioned name → glob)
 COPY --from=backend /be/build/libs/*-all.jar app.jar

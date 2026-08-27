@@ -1,6 +1,7 @@
 package com.cloudstreamweb
 
 import com.cloudstreamweb.config.AppConfig
+import com.cloudstreamweb.download.DownloadManager
 import com.cloudstreamweb.extensions.BundledExtensionRuntime
 import com.cloudstreamweb.extensions.CompositeExtensionRuntime
 import com.cloudstreamweb.extensions.DynamicExtensionRuntime
@@ -128,11 +129,13 @@ fun Application.module(config: AppConfig = AppConfig.fromEnv()) {
     val libraryService = LibraryService(librariesDir)
     kotlinx.coroutines.runBlocking { libraryService.migrateLegacyIfNeeded(profiles) }
 
+    val downloadManager = DownloadManager(config, scope = this)
+
     configureLogging()
     configureSerialization()
     configureHTTP(config)
     configureAuth(config)
-    configureRouting(registry, extensionManager, httpClient, profiles, libraryService, config)
+    configureRouting(registry, extensionManager, httpClient, profiles, libraryService, config, downloadManager)
     configureOpenApi()
     configureStaticFrontend(config)
 }

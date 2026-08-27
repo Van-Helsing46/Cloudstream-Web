@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, proxiedImageUrl } from "../api/client";
 import { SectionRail } from "../components/SectionRail";
 import { ResumeCard } from "../components/ResumeCard";
 import { useT } from "../i18n";
@@ -239,7 +239,7 @@ function Hero({ item }: { item: SearchItem }) {
       className="home-hero"
       style={
         item.posterUrl
-          ? { backgroundImage: `url("${item.posterUrl}")` }
+          ? { backgroundImage: `url("${proxiedImageUrl(item.posterUrl)}")` }
           : { background: posterGradient(item.title) }
       }
     >
@@ -272,7 +272,7 @@ function Top10Card({ item, rank }: { item: SearchItem; rank: number }) {
       <span className="top10-rank">{rank}</span>
       <div className="top10-poster">
         {item.posterUrl ? (
-          <img src={item.posterUrl} alt={item.title} loading="lazy" />
+          <img src={proxiedImageUrl(item.posterUrl)} alt={item.title} loading="lazy" />
         ) : (
           <div className="media-card-placeholder" style={{ background: posterGradient(item.title) }}>
             <span className="media-card-placeholder-title">{item.title}</span>

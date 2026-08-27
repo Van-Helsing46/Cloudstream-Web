@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import type { SearchItem } from "../types";
+import { proxiedImageUrl } from "../api/client";
 import { posterGradient } from "../lib/colors";
 import { useWatchlist } from "../hooks/useWatchlist";
 import { useT } from "../i18n";
@@ -49,7 +50,7 @@ export function MediaCard({
     >
       <div className="media-card-poster" style={{ aspectRatio: aspect }}>
         {item.posterUrl ? (
-          <img src={item.posterUrl} alt={item.title} loading="lazy" />
+          <img src={proxiedImageUrl(item.posterUrl)} alt={item.title} loading="lazy" />
         ) : (
           <div className="media-card-placeholder" style={{ background: posterGradient(item.title) }}>
             <span className="media-card-placeholder-title">{item.title}</span>

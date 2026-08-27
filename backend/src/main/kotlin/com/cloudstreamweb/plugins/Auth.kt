@@ -36,6 +36,32 @@ object SessionAuth {
         if (provided == null) return false
         return MessageDigest.isEqual(provided.toByteArray(), expected.toByteArray())
     }
+
+    private fun hmac(config: AppConfig, message: String): String {
+        val mac = Mac.getInstance("HmacSHA256")
+        mac.init(SecretKeySpec(config.authSecret.toByteArray(), "HmacSHA256"))
+        return mac.doFinal(message.toByteArray()).joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Short-lived signed token for the streaming proxy / download endpoints, so a copied
+     * link works in external players (VLC, curl, download managers) that cannot carry the
+     * httpOnly session cookie. Format: "<expiryEpochSeconds>.<hmac>".
+     */
+    fun streamToken(config: AppConfig, expiresAtEpochSec: Long): String {
+        val message = "stream:$expiresAtEpochSec"
+        return "$expiresAtEpochSec.${hmac(config, message)}"
+    }
+
+    fun streamTokenValid(provided: String?, config: AppConfig): Boolean {
+        if (provided == null) return false
+        val dot = provided.indexOf('.')
+        if (dot <= 0) return false
+        val expiry = provided.substring(0, dot).toLongOrNull() ?: return false
+        if (expiry < System.currentTimeMillis() / 1000) return false
+        val expected = hmac(config, "stream:$expiry")
+        return MessageDigest.isEqual(provided.substring(dot + 1).toByteArray(), expected.toByteArray())
+    }
 }
 
 /**
@@ -52,6 +78,15 @@ fun Application.configureAuth(config: AppConfig) {
         val isApi = path.startsWith("/api/")
         val isPublic = path == "/api/v1/auth/login" || path == "/api/v1/auth/status"
         if (!isApi || isPublic) return@intercept
+
+        // The streaming proxy and download endpoints are also reachable via a short-lived
+        // signed `?token=`, since external players/downloaders cannot carry the httpOnly
+        // session cookie (Auth.kt doc above explains why the cookie exists in the first place).
+        val isStreamLike = path == "/api/v1/stream" || path.startsWith("/api/v1/downloads")
+        if (isStreamLike) {
+            val queryToken = call.request.queryParameters["token"]
+            if (queryToken != null && SessionAuth.streamTokenValid(queryToken, config)) return@intercept
+        }
 
         val token = call.request.cookies[SESSION_COOKIE]
         if (!SessionAuth.tokenValid(token, expected)) {

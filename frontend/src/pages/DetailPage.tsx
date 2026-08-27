@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, ApiError } from "../api/client";
+import { api, ApiError, proxiedImageUrl } from "../api/client";
+import { EpisodeActions } from "../components/EpisodeActions";
 import { Player, type ProgressReason } from "../components/Player";
 import type { Episode, HistoryEntry, StreamLink } from "../types";
 import { useT } from "../i18n";
 import { posterGradient } from "../lib/colors";
+import { episodeFilenameBase } from "../lib/filename";
 import { sortEpisodes } from "../lib/episodes";
+import { useEpisodeLinks } from "../hooks/useEpisodeLinks";
 import { useWatchlist } from "../hooks/useWatchlist";
 
 /** Detail page: backdrop hero, poster/metadata, season pills, episode rows → play via proxy. */
@@ -17,6 +20,8 @@ export function DetailPage() {
   const id = params.get("id") ?? "";
   const location = useLocation();
   const navigate = useNavigate();
+
+  const { resolve: resolveEpisodeLinks, loadingId: linksLoadingId } = useEpisodeLinks(providerId);
 
   const qc = useQueryClient();
   const [playing, setPlaying] = useState<Episode | null>(null);
@@ -163,6 +168,15 @@ export function DetailPage() {
     return [...groups.entries()].sort((a, b) => a[0] - b[0]);
   }, [flatEpisodes]);
 
+  // Season the user is actually watching (resume entry, or else the most recent progress
+  // entry), so the detail page opens on that season instead of always season 1.
+  const progressSeasonKey = useMemo(() => {
+    const entry = resumeEntry ?? mediaProgress.data?.[0];
+    if (!entry) return null;
+    const season = flatEpisodes.find((e) => e.id === entry.episodeId)?.season ?? entry.season;
+    return season ?? null;
+  }, [resumeEntry, mediaProgress.data, flatEpisodes]);
+
   function handlePlaybackEnded() {
     const ep = playing;
     if (!ep) return;
@@ -263,7 +277,10 @@ export function DetailPage() {
       }`
     : t("detail.play");
 
-  const currentSeasonKey = selectedSeason ?? seasons[0]?.[0] ?? 0;
+  const progressSeasonValid =
+    progressSeasonKey != null && seasons.some(([key]) => key === progressSeasonKey);
+  const currentSeasonKey =
+    selectedSeason ?? (progressSeasonValid ? progressSeasonKey! : seasons[0]?.[0] ?? 0);
   const currentEpisodes = seasons.find(([key]) => key === currentSeasonKey)?.[1] ?? [];
 
   return (
@@ -272,7 +289,7 @@ export function DetailPage() {
         className="detail-hero"
         style={
           media.posterUrl
-            ? { backgroundImage: `url("${media.posterUrl}")` }
+            ? { backgroundImage: `url("${proxiedImageUrl(media.posterUrl)}")` }
             : { background: posterGradient(media.title) }
         }
       >
@@ -280,7 +297,7 @@ export function DetailPage() {
           className="detail-hero-bg"
           style={
             media.posterUrl
-              ? { backgroundImage: `url("${media.posterUrl}")` }
+              ? { backgroundImage: `url("${proxiedImageUrl(media.posterUrl)}")` }
               : { background: posterGradient(media.title) }
           }
         />
@@ -294,7 +311,7 @@ export function DetailPage() {
         <div className="detail-header">
           <div className="detail-poster">
             {media.posterUrl ? (
-              <img src={media.posterUrl} alt={media.title} />
+              <img src={proxiedImageUrl(media.posterUrl)} alt={media.title} />
             ) : (
               <div className="media-card-placeholder" style={{ background: posterGradient(media.title) }}>
                 <span className="media-card-placeholder-title">{media.title}</span>
@@ -411,32 +428,36 @@ export function DetailPage() {
                   : 0;
                 const badge = pct >= 90 ? t("detail.badgeWatched") : pct > 0 ? t("detail.badgeInProgress") : "";
                 return (
-                  <button
-                    key={`${ep.id}-${i}`}
-                    className={active ? "episode-row active" : "episode-row"}
-                    onClick={() => play(ep)}
-                  >
-                    <div className="episode-thumb">
-                      {ep.posterUrl ? (
-                        <img src={ep.posterUrl} alt="" loading="lazy" />
-                      ) : (
-                        <div className="episode-thumb-play" aria-hidden="true">
-                          ▶
+                  <div key={`${ep.id}-${i}`} className={active ? "episode-row active" : "episode-row"}>
+                    <button type="button" className="episode-main" onClick={() => play(ep)}>
+                      <div className="episode-thumb">
+                        {ep.posterUrl ? (
+                          <img src={proxiedImageUrl(ep.posterUrl)} alt="" loading="lazy" />
+                        ) : (
+                          <div className="episode-thumb-play" aria-hidden="true">
+                            ▶
+                          </div>
+                        )}
+                        <div className="episode-bar">
+                          <span className="episode-bar-fill" style={{ width: `${pct}%` }} />
                         </div>
-                      )}
-                      <div className="episode-bar">
-                        <span className="episode-bar-fill" style={{ width: `${pct}%` }} />
                       </div>
-                    </div>
-                    <div className="episode-info">
-                      <span className="episode-title">
-                        {ep.episode != null ? `${ep.episode}. ` : ""}
-                        {ep.name ?? t("detail.episodeFallback", { n: i + 1 })}
-                      </span>
-                      {ep.description && <p className="episode-desc">{ep.description}</p>}
-                    </div>
-                    {badge && <span className="episode-badge">{badge}</span>}
-                  </button>
+                      <div className="episode-info">
+                        <span className="episode-title">
+                          {ep.episode != null ? `${ep.episode}. ` : ""}
+                          {ep.name ?? t("detail.episodeFallback", { n: i + 1 })}
+                        </span>
+                        {ep.description && <p className="episode-desc">{ep.description}</p>}
+                      </div>
+                      {badge && <span className="episode-badge">{badge}</span>}
+                    </button>
+                    <EpisodeActions
+                      episode={ep}
+                      filenameBase={episodeFilenameBase(media.title, ep)}
+                      resolveLinks={resolveEpisodeLinks}
+                      linksLoading={linksLoadingId === ep.id}
+                    />
+                  </div>
                 );
               })}
             </div>

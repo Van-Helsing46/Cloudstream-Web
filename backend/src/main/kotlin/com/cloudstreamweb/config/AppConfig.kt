@@ -28,6 +28,14 @@ data class AppConfig(
     val dohEnabled: Boolean,
     /** DNS-over-HTTPS endpoint used when [dohEnabled] is true. */
     val dohUrl: String,
+    /** Validity of signed stream tokens (used by external players/downloaders), in hours. */
+    val streamTokenTtlHours: Long,
+    /** Path/binary name for ffmpeg (HLS→MP4 remux for downloads). */
+    val ffmpegPath: String,
+    /** Path/binary name for ffprobe (duration lookup, for download progress). */
+    val ffprobePath: String,
+    /** How long a reconstructed download stays on disk before being pruned, in hours. */
+    val downloadRetentionHours: Long,
 ) {
     val authEnabled: Boolean get() = !authPassword.isNullOrBlank()
 
@@ -55,6 +63,10 @@ data class AppConfig(
                 dohEnabled = env("DOH_ENABLED")?.toBooleanStrictOrNull() ?: true,
                 dohUrl = env("DOH_URL")?.takeIf { it.isNotBlank() }
                     ?: "https://cloudflare-dns.com/dns-query",
+                streamTokenTtlHours = env("STREAM_TOKEN_TTL_HOURS")?.toLongOrNull() ?: 12L,
+                ffmpegPath = env("FFMPEG_PATH")?.takeIf { it.isNotBlank() } ?: "ffmpeg",
+                ffprobePath = env("FFPROBE_PATH")?.takeIf { it.isNotBlank() } ?: "ffprobe",
+                downloadRetentionHours = env("DOWNLOAD_RETENTION_HOURS")?.toLongOrNull() ?: 24L,
             )
         }
     }

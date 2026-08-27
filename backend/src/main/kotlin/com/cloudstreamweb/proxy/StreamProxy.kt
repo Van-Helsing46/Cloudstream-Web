@@ -42,6 +42,8 @@ fun Route.streamProxy(http: HttpClient) {
     get("/stream") {
         val target = call.request.queryParameters.getOrFail("url")
         val headersParam = call.request.queryParameters["headers"]
+        val filenameParam = call.request.queryParameters["filename"]
+        val tokenParam = call.request.queryParameters["token"]
         val extraHeaders: Map<String, String> = headersParam
             ?.let { runCatching { json.decodeFromString<Map<String, String>>(it) }.getOrNull() }
             .orEmpty()
@@ -73,13 +75,24 @@ fun Route.streamProxy(http: HttpClient) {
             if (upstream.isHlsManifest(target)) {
                 val manifest = upstream.bodyAsText()
                 call.respondText(
-                    text = rewriteHlsManifest(manifest, baseUrl = target, headersParam = headersParam),
+                    text = rewriteHlsManifest(
+                        manifest,
+                        baseUrl = target,
+                        headersParam = headersParam,
+                        tokenParam = tokenParam,
+                    ),
                     contentType = ContentType("application", "vnd.apple.mpegurl"),
                 )
             } else {
                 call.response.header(HttpHeaders.AcceptRanges, "bytes")
                 upstream.headers[HttpHeaders.ContentRange]?.let {
                     call.response.header(HttpHeaders.ContentRange, it)
+                }
+                if (filenameParam != null) {
+                    call.response.header(
+                        HttpHeaders.ContentDisposition,
+                        "attachment; filename*=UTF-8''${sanitizeFilename(filenameParam)}",
+                    )
                 }
                 call.respondBytesWriter(
                     contentType = upstream.contentType(),
@@ -93,7 +106,25 @@ fun Route.streamProxy(http: HttpClient) {
     }
 }
 
-private const val DEFAULT_USER_AGENT =
+/**
+ * Percent-encodes a client-supplied filename for the `filename*=UTF-8''...` form of
+ * `Content-Disposition` (RFC 5987/6266): strips path separators/control characters and caps
+ * length so it can't inject headers or escape the download's target directory, then
+ * percent-encodes. `URLEncoder` follows `application/x-www-form-urlencoded` and would encode
+ * spaces as `+` — valid in a query string, but browsers parsing `filename*` only decode `%XX`
+ * escapes, so a `+` would end up literally in the saved filename (nearly every episode title
+ * has spaces). Substituting `%20` back in avoids that.
+ */
+internal fun sanitizeFilename(raw: String): String {
+    val cleaned = raw
+        .replace(Regex("[/\\\\\"\\p{Cntrl}]"), "_")
+        .trim()
+        .take(120)
+        .ifBlank { "stream" }
+    return URLEncoder.encode(cleaned, Charsets.UTF_8.name()).replace("+", "%20")
+}
+
+internal const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0"
 
 private fun HttpStatusCode.isSuccessOrPartial() =
@@ -111,7 +142,7 @@ private fun HttpResponse.isHlsManifest(url: String): Boolean {
  * Note: for personal/LAN use; DNS rebinding is not covered (it would require a pinned
  * resolver in the HTTP client) — accepted trade-off for this scope.
  */
-private suspend fun validateTarget(url: URL): String? {
+internal suspend fun validateTarget(url: URL): String? {
     val scheme = url.protocol?.lowercase()
     if (scheme != "http" && scheme != "https") return "scheme not allowed: $scheme"
     val host = url.host?.takeIf { it.isNotBlank() } ?: return "missing host"
@@ -128,10 +159,17 @@ private suspend fun validateTarget(url: URL): String? {
 /**
  * Rewrites an HLS manifest: every URI (non-comment lines and URI="…" attributes of
  * EXT-X-KEY/EXT-X-MAP/EXT-X-MEDIA) is resolved to absolute and redirected to the proxy,
- * propagating the same headers. Uses java.net.URL (tolerant) to resolve relative URIs;
- * absolute ones pass through untouched (paths containing `[` would break java.net.URI).
+ * propagating the same headers (and signed token, if any — so a manifest copied out to an
+ * external player keeps working segment by segment when auth is enabled).
+ * Uses java.net.URL (tolerant) to resolve relative URIs; absolute ones pass through
+ * untouched (paths containing `[` would break java.net.URI).
  */
-internal fun rewriteHlsManifest(manifest: String, baseUrl: String, headersParam: String?): String {
+internal fun rewriteHlsManifest(
+    manifest: String,
+    baseUrl: String,
+    headersParam: String?,
+    tokenParam: String? = null,
+): String {
     val base = runCatching { URL(baseUrl) }.getOrNull()
 
     fun resolve(raw: String): String {
@@ -143,16 +181,19 @@ internal fun rewriteHlsManifest(manifest: String, baseUrl: String, headersParam:
     fun proxied(raw: String): String {
         val absolute = resolve(raw)
         val encodedUrl = URLEncoder.encode(absolute, Charsets.UTF_8.name())
-        val suffix = headersParam
+        val headersSuffix = headersParam
             ?.let { "&headers=" + URLEncoder.encode(it, Charsets.UTF_8.name()) }
             .orEmpty()
-        return "/api/v1/stream?url=$encodedUrl$suffix"
+        val tokenSuffix = tokenParam
+            ?.let { "&token=" + URLEncoder.encode(it, Charsets.UTF_8.name()) }
+            .orEmpty()
+        return "/api/v1/stream?url=$encodedUrl$headersSuffix$tokenSuffix"
     }
 
-    val uriAttribute = Regex("""URI="([^"]+)"""")
+    val uriAttribute = Regex("URI=\"([^\"]+)\"")
     return manifest.lineSequence().joinToString("\n") { line ->
         when {
-            line.startsWith("#") -> uriAttribute.replace(line) { m -> """URI="${proxied(m.groupValues[1])}"""" }
+            line.startsWith("#") -> uriAttribute.replace(line) { m -> "URI=\"${proxied(m.groupValues[1])}\"" }
             line.isBlank() -> line
             else -> proxied(line)
         }

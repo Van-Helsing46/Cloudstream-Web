@@ -2,6 +2,10 @@ package com.cloudstreamweb.plugins
 
 import com.cloudstreamweb.config.AppConfig
 import com.cloudstreamweb.domain.SearchResponse
+import com.cloudstreamweb.download.DownloadManager
+import com.cloudstreamweb.download.DownloadStatus
+import com.cloudstreamweb.download.StartDownloadRequest
+import com.cloudstreamweb.download.StartDownloadResponse
 import com.cloudstreamweb.extensions.ExtensionManager
 import com.cloudstreamweb.library.AddWatchlistRequest
 import com.cloudstreamweb.library.CreateProfileRequest
@@ -11,19 +15,24 @@ import com.cloudstreamweb.library.ProfileStore
 import com.cloudstreamweb.library.ProgressRequest
 import com.cloudstreamweb.library.UpdateProfileRequest
 import com.cloudstreamweb.provider.ProviderRegistry
+import com.cloudstreamweb.proxy.sanitizeFilename
+import com.cloudstreamweb.proxy.imageProxy
 import com.cloudstreamweb.proxy.streamProxy
 import io.ktor.client.HttpClient
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.CookieEncoding
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.PartData
 import io.ktor.http.content.forEachPart
 import io.ktor.server.application.Application
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveMultipart
+import io.ktor.server.response.header
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondFile
 import io.ktor.server.routing.RoutingContext
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
@@ -64,6 +73,9 @@ private suspend fun RoutingContext.respondProviderFailure(t: Throwable) {
 @Serializable
 data class LoginRequest(val password: String)
 
+@Serializable
+data class StreamTokenResponse(val token: String?, val expiresAt: Long?)
+
 private const val MAX_AVATAR_BYTES = 2 * 1024 * 1024
 
 private val AVATAR_EXTENSIONS = mapOf(
@@ -92,6 +104,7 @@ fun Application.configureRouting(
     profiles: ProfileStore,
     libraryService: LibraryService,
     config: AppConfig,
+    downloadManager: DownloadManager,
 ) {
     routing {
         get("/health") {
@@ -142,6 +155,19 @@ fun Application.configureRouting(
                         Cookie(SESSION_COOKIE, "", path = "/", maxAge = 0, encoding = CookieEncoding.RAW),
                     )
                     call.respond(mapOf("authenticated" to false))
+                }
+
+                // Short-lived signed token for the streaming proxy / download endpoints,
+                // so a copied link (or an external download job) works outside the browser
+                // session — see SessionAuth.streamToken.
+                get("/stream-token") {
+                    if (!config.authEnabled) {
+                        return@get call.respond(StreamTokenResponse(token = null, expiresAt = null))
+                    }
+                    val expiresAt = System.currentTimeMillis() / 1000 + config.streamTokenTtlHours * 3600
+                    call.respond(
+                        StreamTokenResponse(token = SessionAuth.streamToken(config, expiresAt), expiresAt = expiresAt),
+                    )
                 }
             }
 
@@ -461,8 +487,55 @@ fun Application.configureRouting(
                 }
             }
 
+            // HLS→MP4 reconstruction jobs, for the "download" button on non-progressive
+            // sources (a browser can't save a multi-segment .m3u8 stream as one file).
+            route("/downloads") {
+                post {
+                    val req = call.receive<StartDownloadRequest>()
+                    if (!req.isM3u8) {
+                        return@post call.respond(
+                            HttpStatusCode.BadRequest,
+                            mapOf("error" to "only HLS sources need a reconstruction job"),
+                        )
+                    }
+                    val job = downloadManager.start(req)
+                    call.respond(HttpStatusCode.Accepted, StartDownloadResponse(job.id))
+                }
+
+                get("/{id}") {
+                    val id = call.parameters.getOrFail("id")
+                    val job = downloadManager.get(id)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown job"))
+                    call.respond(job)
+                }
+
+                get("/{id}/file") {
+                    val id = call.parameters.getOrFail("id")
+                    val job = downloadManager.get(id)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown job"))
+                    if (job.status != DownloadStatus.READY) {
+                        return@get call.respond(HttpStatusCode.Conflict, mapOf("error" to "job not ready"))
+                    }
+                    val file = downloadManager.fileFor(id)
+                        ?: return@get call.respond(HttpStatusCode.NotFound, mapOf("error" to "file missing"))
+                    call.response.header(
+                        HttpHeaders.ContentDisposition,
+                        "attachment; filename*=UTF-8''${sanitizeFilename(job.filename)}",
+                    )
+                    call.respondFile(file)
+                }
+
+                delete("/{id}") {
+                    val id = call.parameters.getOrFail("id")
+                    if (downloadManager.cancel(id)) call.respond(mapOf("canceled" to id))
+                    else call.respond(HttpStatusCode.NotFound, mapOf("error" to "unknown or already finished job"))
+                }
+            }
+
             // Streaming proxy
             streamProxy(httpClient)
+            // Poster/thumbnail proxy (so images resolve via the backend's DNS, not the client's)
+            imageProxy(httpClient)
         }
     }
 }
