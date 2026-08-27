@@ -22,6 +22,8 @@ gradle wrapper
 | GET | `/api/v1/providers/{id}/detail?id=` | Content detail |
 | GET | `/api/v1/providers/{id}/links?id=` | Streaming links |
 | GET | `/api/v1/stream?url=&headers=` | Streaming proxy |
+| GET | `/api/v1/image?url=` | Poster/thumbnail proxy |
+| *   | `/api/v1/downloads/...` | HLS→MP4 download jobs (episode "download" button) |
 | *   | `/api/v1/extensions/...` | Extension management |
 | *   | `/api/v1/profiles`, `/api/v1/library/...` | Profiles and per-profile library |
 
@@ -36,7 +38,8 @@ com.cloudstreamweb
 ├── provider/               # Provider interface + registry
 ├── extensions/             # extension runtime + ExtensionManager (see its README)
 ├── library/                # profiles, watchlist, history/resume
-├── proxy/                  # streaming proxy
+├── proxy/                  # streaming proxy + poster/thumbnail proxy
+├── download/               # HLS→MP4 reconstruction jobs (episode download button)
 └── plugins/                # Ktor configuration (routing, auth, serialization, http)
 ```
 

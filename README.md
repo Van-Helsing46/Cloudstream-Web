@@ -27,11 +27,13 @@ Everything the Android app did on-device (running the extension, scraping, openi
 
 - **Aggregated search** across all active providers (parallel and fault-tolerant: one broken provider does not block the others), per-provider home page, detail page with seasons/episodes and multiple sources.
 - **HLS player** (hls.js) through the **streaming proxy**: per-request header injection, full manifest rewriting (variants, `EXT-X-KEY`/`MAP`/`MEDIA`, AES-128 keys), range requests/206, SSRF guard.
-- **Extension management** from the UI: add Cloudstream repositories (`repo.json`/`plugins.json`), install/update/uninstall with sha256 verification, persisted state and reactivation on startup.
-- **Netflix-style multi-user profiles** (no per-profile password) with **watchlist**, **watch history** and per-series **"continue watching"**: the player saves your position and resumes where you left off ("Resume S1E3"), with per-episode progress bars.
-- **Single instance password auth** (HMAC-signed httpOnly session cookie) — designed for LAN exposure, not for running a public service.
+- **Extension management** from the UI: add Cloudstream repositories (`repo.json`/`plugins.json`), install/update/uninstall with sha256 verification, persisted state and reactivation on startup. The catalog shows which repositories provide each extension; installed extensions update daily on their own (or on demand, via an "update all" button).
+- **Netflix-style multi-user profiles** (no per-profile password) with **watchlist**, **watch history** and per-series **"continue watching"**: the player saves your position and resumes where you left off ("Resume S1E3"), with per-episode progress bars; the detail page opens on the season you're actually watching.
+- **Episode download and direct link**: HLS sources are remuxed server-side into a single MP4 (ffmpeg, no re-encoding) so the browser can save them, with live progress and dedup — a second request for an episode already downloading/cached reuses that job instead of starting a redundant one; a separate button copies the source's direct URL for external players/downloaders. Posters/thumbnails are also proxied through the backend rather than hotlinked, so they keep loading even on networks that block the source CDN's domain.
+- **Single instance password auth** (HMAC-signed httpOnly session cookie) — designed for LAN exposure, not for running a public service. A short-lived signed token lets a copied stream/download link work outside the browser session too (VLC, curl, download managers).
+- **Resilient to source-side blocking**: hostnames resolve via DNS-over-HTTPS by default (bypasses ISP-level DNS blocking/hijacking of extension source domains), and an optional [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) sidecar solves Cloudflare "Just a moment…" challenges when configured.
 - **Versioned REST API** (`/api/v1`) with an **OpenAPI** contract served at `/swagger`, structured logging (text or JSON), configuration entirely via environment variables.
-- **Single-container deploy**: one Docker image with the backend also serving the static frontend.
+- **Single-container deploy**: one Docker image (with ffmpeg for the download feature) with the backend also serving the static frontend.
 
 ## How extensions work here
 
@@ -99,10 +101,14 @@ All optional, with sensible defaults — full reference in [`backend/.env.exampl
 | `SEARCH_TIMEOUT_MS` | `15000` | Per-provider timeout for aggregated search |
 | `FRONTEND_DIR` | *(empty)* | Static FE build to serve (set inside the container) |
 | `LOG_FORMAT` | `text` | `text` (dev) or `json` (prod) |
+| `DOH_ENABLED` | `true` | Resolve hostnames via DNS-over-HTTPS instead of the system resolver |
+| `FLARESOLVERR_URL` | *(empty)* | FlareSolverr sidecar endpoint, to solve Cloudflare challenges (empty = disabled) |
+| `FFMPEG_PATH` / `FFPROBE_PATH` | `ffmpeg` / `ffprobe` | Binaries used to remux HLS sources for the episode download button (already on `PATH` in the Docker image) |
+| `DOWNLOAD_RETENTION_HOURS` | `24` | How long a reconstructed download stays on disk before being pruned |
 
 ## API
 
-REST under `/api/v1`: providers (`/search`, `/providers/{id}/{home,detail,links}`), extensions (`/extensions/...`), profiles (`/profiles`), per-profile library (`/library/...`, `X-Profile-Id` header), proxy (`/stream?url&headers`). Interactive OpenAPI contract at **`/swagger`** (raw spec at `/openapi.yaml`).
+REST under `/api/v1`: providers (`/search`, `/providers/{id}/{home,detail,links}`), extensions (`/extensions/...`), profiles (`/profiles`), per-profile library (`/library/...`, `X-Profile-Id` header), streaming proxy (`/stream?url&headers`), poster proxy (`/image?url`), HLS→MP4 download jobs (`/downloads/...`). Interactive OpenAPI contract at **`/swagger`** (raw spec at `/openapi.yaml`).
 
 ## Security and scope
 
