@@ -37,8 +37,8 @@ function ProgressRing({ progress }: { progress: number | null }) {
     <svg
       className={indeterminate ? "episode-action-ring episode-action-ring-spin" : "episode-action-ring"}
       viewBox="0 0 20 20"
-      width="18"
-      height="18"
+      width="20"
+      height="20"
       aria-hidden="true"
     >
       <circle cx="10" cy="10" r={RING_R} className="episode-action-ring-track" />
