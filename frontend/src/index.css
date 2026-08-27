@@ -712,8 +712,12 @@ a:hover { color: var(--link-hover); }
 
 /* Sized/contrasted to actually read as "something is happening" at a glance — the original
    18px/9%-opacity track was functionally correct (verified against real download jobs) but
-   too faint to notice next to the plain "⬇" icon, especially on mobile. */
-.episode-action-ring { display: block; }
+   too faint to notice next to the plain "⬇" icon, especially on mobile.
+   width/height here are load-bearing, not decorative: .episode-action-btn is a flex
+   container, and a flex item's automatic size ignores an <svg>'s width/height *attributes*
+   (only a CSS box size counts) — without this the ring's flex-basis resolves to 0 and it
+   renders at zero width, invisible regardless of stroke color/opacity. */
+.episode-action-ring { display: block; width: 20px; height: 20px; flex: none; }
 .episode-action-ring-track { fill: none; stroke: rgba(255, 255, 255, 0.28); stroke-width: 2.5; }
 .episode-action-ring-fill {
   fill: none;
