@@ -56,7 +56,10 @@ docker run --rm -v cloudstream-web_cloudstream-web-data:/data -v "$PWD":/backup 
 
 ## Option B — Run from source (development)
 
-Prerequisites: **JDK 21+**, **Node.js 20+**.
+Prerequisites: **JDK 21+**, **Node.js 20+**, **ffmpeg + ffprobe** on the `PATH` (only needed for
+the episode "download" button on HLS sources — it remuxes the stream into a single MP4; override
+the binary paths with `FFMPEG_PATH`/`FFPROBE_PATH` if they're not on `PATH`). The Docker image
+already includes ffmpeg.
 
 ```bash
 # Backend → http://localhost:8080

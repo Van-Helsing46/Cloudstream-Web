@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { HistoryEntry } from "../types";
+import { proxiedImageUrl } from "../api/client";
 import { posterGradient } from "../lib/colors";
 
 /** 16:9 card for "continue watching" rails: play overlay, progress bar, `SxEy · pct%` label. */
@@ -21,7 +22,7 @@ export function ResumeCard({ entry }: { entry: HistoryEntry }) {
     >
       <div className="resume-card-poster">
         {entry.posterUrl ? (
-          <img src={entry.posterUrl} alt={entry.title} loading="lazy" />
+          <img src={proxiedImageUrl(entry.posterUrl)} alt={entry.title} loading="lazy" />
         ) : (
           <div className="media-card-placeholder" style={{ background: posterGradient(entry.title) }}>
             <span className="media-card-placeholder-title">{entry.title}</span>
