@@ -265,8 +265,10 @@ export const api = {
 
   // ---- HLS→MP4 reconstruction jobs (episode "download" button on non-progressive sources) ----
   downloads: {
+    // Returns the full job, not just its id: the backend may hand back an already
+    // running/ready job for the same episode instead of a fresh one (see StartDownloadRequest).
     start: (req: StartDownloadRequest) =>
-      request<{ jobId: string }>("/downloads", {
+      request<DownloadJob>("/downloads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(req),

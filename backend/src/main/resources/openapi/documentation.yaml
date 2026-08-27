@@ -19,6 +19,7 @@ tags:
   - name: profiles
   - name: library
   - name: stream
+  - name: downloads
 
 paths:
   /auth/status:
@@ -56,6 +57,26 @@ paths:
       summary: Logout; invalidates the session cookie
       responses:
         "200": { description: Logged out }
+  /auth/stream-token:
+    get:
+      tags: [auth]
+      summary: Short-lived signed token for /stream and /downloads/*
+      description: >
+        Lets a copied stream/download link work outside the browser session (VLC, curl,
+        download managers), which can't carry the httpOnly session cookie: pass the token
+        back as `?token=` on `/stream` or `/downloads/*`. Requires the session cookie to
+        request (like any other endpoint once auth is enabled). Returns `token: null` when
+        `AUTH_PASSWORD` is not set (auth disabled — no token needed).
+      responses:
+        "200":
+          description: A fresh token, or null if auth is disabled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string, nullable: true }
+                  expiresAt: { type: integer, nullable: true, description: Unix epoch seconds }
 
   /providers:
     get:
@@ -200,6 +221,20 @@ paths:
       summary: Installed extensions
       responses:
         "200": { description: Installed list }
+  /extensions/update-all:
+    post:
+      tags: [extensions]
+      summary: Updates every installed extension to the latest version in its repositories
+      description: >
+        Never fails outright: per-extension errors are reported inside the summary instead of
+        aborting the rest. Also run automatically once a day (~04:00 server time); this is the
+        same manual trigger as the UI's "update all" button.
+      responses:
+        "200":
+          description: Summary of what changed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateAllSummary" }
   /extensions/{internalName}/install:
     post:
       tags: [extensions]
@@ -490,8 +525,8 @@ paths:
       summary: Streaming proxy — injects headers and rewrites HLS manifests
       description: >
         Fetches `url` injecting the `headers` (from the StreamLink) towards the source. If the
-        content is an HLS manifest, its URIs are rewritten towards this same proxy. Supports
-        Range requests.
+        content is an HLS manifest, its URIs are rewritten towards this same proxy (carrying
+        `headers`/`token` forward). Supports Range requests.
       parameters:
         - name: url
           in: query
@@ -503,11 +538,115 @@ paths:
           required: false
           description: URL-encoded JSON of headers to inject
           schema: { type: string }
+        - name: filename
+          in: query
+          required: false
+          description: >
+            When present, adds a `Content-Disposition: attachment` header with this name
+            (sanitized), so a browser saves the response as a file instead of playing it inline.
+          schema: { type: string }
+        - name: token
+          in: query
+          required: false
+          description: >
+            Signed token from `/auth/stream-token`, accepted in place of the session cookie —
+            the only way to use this endpoint from outside the browser when `AUTH_PASSWORD` is set.
+          schema: { type: string }
       responses:
         "200": { description: Body (rewritten manifest or stream) }
         "206": { description: Partial content (Range) }
         "400": { description: Invalid or disallowed URL (SSRF) }
+        "401": { description: Missing/invalid session cookie and token (auth enabled) }
         "502": { description: The source answered with an error }
+  /image:
+    get:
+      tags: [stream]
+      summary: Poster/thumbnail proxy
+      description: >
+        Fetches `url` (a `posterUrl` field) through the backend instead of the browser hotlinking
+        the provider's CDN directly — the backend resolves via DNS-over-HTTPS, so posters keep
+        loading even when the client's own network blocks/hijacks DNS for that domain. Same SSRF
+        guard as `/stream`. Responses are cached for a day (`Cache-Control: public, max-age=86400`).
+      parameters:
+        - name: url
+          in: query
+          required: true
+          description: Absolute image URL (http/https, public host)
+          schema: { type: string }
+      responses:
+        "200": { description: The image bytes }
+        "400": { description: Invalid or disallowed URL (SSRF) }
+        "502": { description: The source answered with an error }
+
+  /downloads:
+    post:
+      tags: [downloads]
+      summary: Starts (or reuses) an HLS→MP4 reconstruction job
+      description: >
+        Only HLS sources need this: a browser can't save a multi-segment `.m3u8` stream as one
+        file, so the backend remuxes it (`-c copy`, no re-encoding) into a single MP4 via ffmpeg.
+        A second request for the same `(providerId, episodeId)` while a job is still queued,
+        running, or already finished (and not yet pruned by the retention window) reuses that
+        job instead of starting a redundant remux — the response may therefore describe a job
+        started by an earlier request, not a brand new one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartDownloadRequest" }
+      responses:
+        "202":
+          description: The job (new, or an existing one reused for this episode)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadJob" }
+        "400": { description: isM3u8 is false — progressive sources don't need a job }
+  /downloads/{id}:
+    get:
+      tags: [downloads]
+      summary: Job status/progress
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Current job state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DownloadJob" }
+        "404": { description: Unknown job (also returned after a backend restart — jobs are in-memory only) }
+    delete:
+      tags: [downloads]
+      summary: Cancels a queued/running job
+      description: Kills the ffmpeg process (and its descendants) and deletes the partial file.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: Canceled }
+        "404": { description: Unknown job, or not cancelable (already finished/failed/canceled) }
+  /downloads/{id}/file:
+    get:
+      tags: [downloads]
+      summary: Downloads the finished MP4
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: token
+          in: query
+          required: false
+          description: Signed token from /auth/stream-token, for use outside the browser session.
+          schema: { type: string }
+      responses:
+        "200": { description: The MP4 file, with a Content-Disposition attachment header }
+        "404": { description: Unknown job, or the file is missing }
+        "409": { description: Job exists but isn't READY yet }
 
 components:
   parameters:
@@ -610,6 +749,10 @@ components:
           items: { type: string }
         iconUrl: { type: string, nullable: true }
         repositoryUrl: { type: string, nullable: true }
+        sourceRepositories:
+          type: array
+          items: { type: string }
+          description: Names of every registered repository that lists this extension
         installedVersion: { type: integer, nullable: true }
         runtimeSupported: { type: boolean }
         active:
@@ -620,6 +763,31 @@ components:
           type: string
           nullable: true
           description: Why activation failed, when active is false
+    UpdatedExtension:
+      type: object
+      properties:
+        internalName: { type: string }
+        name: { type: string }
+        fromVersion: { type: integer }
+        toVersion: { type: integer }
+    FailedUpdate:
+      type: object
+      properties:
+        internalName: { type: string }
+        error: { type: string }
+    UpdateAllSummary:
+      type: object
+      properties:
+        updated:
+          type: array
+          items: { $ref: "#/components/schemas/UpdatedExtension" }
+        upToDate:
+          type: array
+          items: { type: string }
+          description: internalNames already at the latest version found in the repositories
+        failed:
+          type: array
+          items: { $ref: "#/components/schemas/FailedUpdate" }
     AddWatchlistRequest:
       type: object
       properties:
@@ -688,3 +856,39 @@ components:
           type: string
           nullable: true
           description: Omit to keep the current avatar; empty string clears it back to the fallback.
+    DownloadStatus:
+      type: string
+      enum: [QUEUED, RUNNING, READY, FAILED, CANCELED]
+    StartDownloadRequest:
+      type: object
+      required: [providerId, episodeId, url, isM3u8, filename]
+      properties:
+        providerId: { type: string }
+        episodeId:
+          type: string
+          description: >
+            Identifies the episode for server-side dedup: a second request for the same
+            (providerId, episodeId) reuses an in-flight job, or a still-cached finished one,
+            instead of starting a redundant remux.
+        url: { type: string, description: The StreamLink's source URL }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+        isM3u8:
+          type: boolean
+          description: Must be true — progressive (non-HLS) sources are downloaded directly by the browser and never reach this endpoint.
+        filename: { type: string, description: Suggested filename for the finished MP4 }
+    DownloadJob:
+      type: object
+      description: A background HLS→MP4 remux job.
+      properties:
+        id: { type: string }
+        status: { $ref: "#/components/schemas/DownloadStatus" }
+        progress:
+          type: number
+          nullable: true
+          description: 0..1; null while the source duration is unknown (ffprobe failed, or hasn't returned yet)
+        filename: { type: string }
+        sizeBytes: { type: integer, nullable: true, description: Set once the job is READY }
+        error: { type: string, nullable: true, description: Set when status is FAILED }
+        createdAt: { type: integer, description: Unix epoch seconds }
