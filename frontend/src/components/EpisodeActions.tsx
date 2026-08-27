@@ -107,8 +107,10 @@ export function EpisodeActions({
   }, [choices]);
 
   async function copyLink(link: StreamLink) {
-    const token = await api.streamToken();
-    const ok = await copyToClipboard(externalStreamUrl(link, { token }));
+    // The raw source URL, not the backend proxy: the proxy exists to inject headers
+    // (Referer/User-Agent) that the *browser* can't set, but copying it out is meant to hand
+    // the user the actual media URL for an external tool that manages its own headers.
+    const ok = await copyToClipboard(link.url);
     if (ok) {
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
