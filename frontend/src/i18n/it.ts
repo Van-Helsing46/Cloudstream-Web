@@ -54,7 +54,7 @@ export const it = {
     resultsFor: "Risultati per «{query}»",
     resultCountOne: "{count} risultato",
     resultCountOther: "{count} risultati",
-    empty: "Usa la barra di ricerca in alto per trovare qualcosa da guardare.",
+    empty: "Usa la barra di ricerca per trovare qualcosa da guardare.",
   },
   detail: {
     loading: "Carico il dettaglio…",

@@ -52,7 +52,7 @@ export const en = {
     resultsFor: "Results for “{query}”",
     resultCountOne: "{count} result",
     resultCountOther: "{count} results",
-    empty: "Use the search bar above to find something to watch.",
+    empty: "Use the search bar to find something to watch.",
   },
   detail: {
     loading: "Loading details…",
