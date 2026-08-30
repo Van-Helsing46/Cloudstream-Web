@@ -273,6 +273,10 @@ a:hover { color: var(--link-hover); }
   .episode-badge { flex-basis: 100%; padding-right: 0; margin-left: calc(80px + 16px); }
 }
 
+@media (pointer: coarse) {
+  .player-fullscreen-btn { width: 44px; height: 44px; }
+}
+
 .error { color: var(--danger); }
 .muted { color: var(--muted); }
 

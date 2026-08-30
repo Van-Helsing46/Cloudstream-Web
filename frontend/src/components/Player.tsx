@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useRef, type MutableRefObject } from "react";
 import Hls from "hls.js";
 import { streamProxyUrl } from "../api/client";
 import type { StreamLink } from "../types";
@@ -13,14 +13,7 @@ import type { StreamLink } from "../types";
  */
 export type ProgressReason = "interval" | "pause" | "unmount" | "ended";
 
-export function Player({
-  link,
-  resumeAt,
-  onProgress,
-  onEnded,
-  mediaTitle,
-  artworkUrl,
-}: {
+type PlayerProps = {
   link: StreamLink;
   resumeAt?: number;
   onProgress?: (positionSeconds: number, durationSeconds: number, reason: ProgressReason) => void;
@@ -28,8 +21,15 @@ export function Player({
   /** Shown in the OS media-session UI (lock screen / notification). */
   mediaTitle?: string;
   artworkUrl?: string;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+};
+
+// The <video> ref is forwarded so DetailPage can fall back to the legacy
+// video.webkitEnterFullscreen() on iOS Safari, which has no Fullscreen API for other elements.
+export const Player = forwardRef<HTMLVideoElement, PlayerProps>(function Player(
+  { link, resumeAt, onProgress, onEnded, mediaTitle, artworkUrl },
+  forwardedRef,
+) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const src = streamProxyUrl(link);
 
   // OS media controls (Android notification / lock screen, macOS Now Playing): show the
@@ -124,10 +124,19 @@ export function Player({
 
   return (
     <video
-      ref={videoRef}
+      ref={(el) => {
+        videoRef.current = el;
+        if (typeof forwardedRef === "function") forwardedRef(el);
+        else if (forwardedRef) (forwardedRef as MutableRefObject<HTMLVideoElement | null>).current = el;
+      }}
       controls
       autoPlay
+      // playsInline (+ the legacy webkit- prefix) keeps iOS Safari playing inline instead of
+      // switching to its own system-wide fullscreen player, which would bypass .player-shell
+      // entirely (custom fullscreen button, next-episode overlay).
+      playsInline
+      webkit-playsinline="true"
       style={{ width: "100%", maxHeight: "70vh", background: "#000" }}
     />
   );
-}
+});

@@ -41,6 +41,7 @@ export function DetailPage() {
   // itself), so the "next episode" overlay stays visible in fullscreen and survives
   // the Player unmount/remount that happens when play() swaps episodes.
   const playerShellRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
     const handler = () => setIsFullscreen(document.fullscreenElement === playerShellRef.current);
@@ -48,9 +49,23 @@ export function DetailPage() {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
   function toggleFullscreen() {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void playerShellRef.current?.requestFullscreen();
+    if (document.fullscreenElement) {
+      void document.exitFullscreen();
+      return;
+    }
+    // iOS Safari has no Fullscreen API for arbitrary elements (only the <video> itself,
+    // via the legacy webkitEnterFullscreen) — the next-episode overlay isn't visible there,
+    // but that's the best available fallback.
+    const video = videoRef.current as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null;
+    if (document.fullscreenEnabled) void playerShellRef.current?.requestFullscreen();
+    else video?.webkitEnterFullscreen?.();
   }
+
+  // Bring the player into view when it mounts (play() opens it below the fold on short
+  // screens), instead of leaving the user to notice and scroll down manually.
+  useEffect(() => {
+    if (playing) playerShellRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [playing]);
 
   // "Next episode" countdown, shown on the player's `ended` event.
   const NEXT_EPISODE_COUNTDOWN = 10;
@@ -371,6 +386,7 @@ export function DetailPage() {
             <section className="player-section">
               {current && (
                 <Player
+                  ref={videoRef}
                   link={current}
                   resumeAt={resumeAt}
                   onProgress={saveProgress}
