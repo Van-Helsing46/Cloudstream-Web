@@ -12,6 +12,10 @@ import { sortEpisodes } from "../lib/episodes";
 import { useEpisodeLinks } from "../hooks/useEpisodeLinks";
 import { useWatchlist } from "../hooks/useWatchlist";
 
+// Long seasons (e.g. a 1000+ episode anime) render as flat lists that get unwieldy on any
+// screen; above this size the episodes are split into picker chips instead of one long list.
+const EPISODE_RANGE_SIZE = 50;
+
 /** Detail page: backdrop hero, poster/metadata, season pills, episode rows → play via proxy. */
 export function DetailPage() {
   const t = useT();
@@ -31,6 +35,7 @@ export function DetailPage() {
   const [loadingLinks, setLoadingLinks] = useState(false);
   const [resumeAt, setResumeAt] = useState<number>(0);
   const [selectedSeason, setSelectedSeason] = useState<number | null>(null);
+  const [selectedRange, setSelectedRange] = useState(0);
 
   // Fullscreen lives on a wrapper around the whole player section (not the <video>
   // itself), so the "next episode" overlay stays visible in fullscreen and survives
@@ -258,6 +263,34 @@ export function DetailPage() {
     else navigate("/");
   }
 
+  const progressSeasonValid =
+    progressSeasonKey != null && seasons.some(([key]) => key === progressSeasonKey);
+  const currentSeasonKey =
+    selectedSeason ?? (progressSeasonValid ? progressSeasonKey! : seasons[0]?.[0] ?? 0);
+  const currentEpisodes = seasons.find(([key]) => key === currentSeasonKey)?.[1] ?? [];
+
+  const episodeRanges =
+    currentEpisodes.length > EPISODE_RANGE_SIZE
+      ? Array.from({ length: Math.ceil(currentEpisodes.length / EPISODE_RANGE_SIZE) }, (_, i) => ({
+          start: i * EPISODE_RANGE_SIZE,
+          end: Math.min((i + 1) * EPISODE_RANGE_SIZE, currentEpisodes.length),
+        }))
+      : null;
+  const activeRange = episodeRanges?.[selectedRange] ?? episodeRanges?.[0];
+  const visibleEpisodes = activeRange ? currentEpisodes.slice(activeRange.start, activeRange.end) : currentEpisodes;
+
+  // Jump to the range containing the resume episode whenever the season (or title) changes,
+  // instead of always landing on range 1 for a series the user is mid-way through.
+  useEffect(() => {
+    if (!episodeRanges) {
+      setSelectedRange(0);
+      return;
+    }
+    const resumeIdx = resumeEntry ? currentEpisodes.findIndex((e) => e.id === resumeEntry.episodeId) : -1;
+    setSelectedRange(resumeIdx >= 0 ? Math.floor(resumeIdx / EPISODE_RANGE_SIZE) : 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSeasonKey, providerId, id]);
+
   if (detail.isLoading) return <p className="muted">{t("detail.loading")}</p>;
   if (detail.isError) return <p className="error">{String(detail.error)}</p>;
   if (!detail.data) return null;
@@ -276,12 +309,6 @@ export function DetailPage() {
           : ""
       }`
     : t("detail.play");
-
-  const progressSeasonValid =
-    progressSeasonKey != null && seasons.some(([key]) => key === progressSeasonKey);
-  const currentSeasonKey =
-    selectedSeason ?? (progressSeasonValid ? progressSeasonKey! : seasons[0]?.[0] ?? 0);
-  const currentEpisodes = seasons.find(([key]) => key === currentSeasonKey)?.[1] ?? [];
 
   return (
     <>
@@ -424,8 +451,22 @@ export function DetailPage() {
                 ))}
               </div>
             )}
+            {episodeRanges && (
+              <div className="chip-row">
+                {episodeRanges.map((range, i) => (
+                  <button
+                    key={i}
+                    className={i === selectedRange ? "chip chip-active" : "chip"}
+                    onClick={() => setSelectedRange(i)}
+                  >
+                    {t("detail.episodeRange", { start: range.start + 1, end: range.end })}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="episode-rows">
-              {currentEpisodes.map((ep, i) => {
+              {visibleEpisodes.map((ep, i) => {
+                const absoluteIndex = (activeRange?.start ?? 0) + i;
                 const active = playing === ep;
                 const prog = progressByEpisode.get(ep.id);
                 const pct = prog?.durationSeconds
@@ -433,7 +474,7 @@ export function DetailPage() {
                   : 0;
                 const badge = pct >= 90 ? t("detail.badgeWatched") : pct > 0 ? t("detail.badgeInProgress") : "";
                 return (
-                  <div key={`${ep.id}-${i}`} className={active ? "episode-row active" : "episode-row"}>
+                  <div key={`${ep.id}-${absoluteIndex}`} className={active ? "episode-row active" : "episode-row"}>
                     <button type="button" className="episode-main" onClick={() => play(ep)}>
                       <div className="episode-thumb">
                         {ep.posterUrl ? (
@@ -450,7 +491,7 @@ export function DetailPage() {
                       <div className="episode-info">
                         <span className="episode-title">
                           {ep.episode != null ? `${ep.episode}. ` : ""}
-                          {ep.name ?? t("detail.episodeFallback", { n: i + 1 })}
+                          {ep.name ?? t("detail.episodeFallback", { n: absoluteIndex + 1 })}
                         </span>
                         {ep.description && <p className="episode-desc">{ep.description}</p>}
                       </div>

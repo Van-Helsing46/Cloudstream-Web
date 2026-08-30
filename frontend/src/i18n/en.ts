@@ -64,6 +64,7 @@ export const en = {
     source: "Source:",
     sourceN: "Source {n}",
     season: "Season {n}",
+    episodeRange: "{start}–{end}",
     episodesHeading: "Episodes",
     episodeFallback: "Episode {n}",
     badgeInProgress: "In progress",

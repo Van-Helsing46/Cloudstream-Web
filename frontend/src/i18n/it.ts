@@ -66,6 +66,7 @@ export const it = {
     source: "Fonte:",
     sourceN: "Fonte {n}",
     season: "Stagione {n}",
+    episodeRange: "{start}–{end}",
     episodesHeading: "Episodi",
     episodeFallback: "Episodio {n}",
     badgeInProgress: "In corso",
