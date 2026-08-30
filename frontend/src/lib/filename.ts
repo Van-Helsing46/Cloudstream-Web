@@ -1,3 +1,23 @@
+/**
+ * Label for the OS media-session UI. Movies: just the title. Series:
+ * "{series} S{season}E{episode} - {episode name}" (no zero-padding), degrading
+ * gracefully when the season/episode numbers or the episode name are missing.
+ */
+export function mediaSessionTitle(
+  title: string,
+  episode: { season?: number | null; episode?: number | null; name?: string | null } | null,
+): string {
+  if (!episode) return title;
+  let out = title;
+  if (episode.season != null && episode.episode != null) {
+    out += ` S${episode.season}E${episode.episode}`;
+  } else if (episode.episode != null) {
+    out += ` E${episode.episode}`;
+  }
+  if (episode.name) out += ` - ${episode.name}`;
+  return out;
+}
+
 /** Strips characters that are unsafe in a filename on Windows/macOS/Linux, and caps length. */
 export function sanitizeFilenameBase(raw: string): string {
   const cleaned = raw.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim();
