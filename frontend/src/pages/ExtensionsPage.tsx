@@ -97,13 +97,13 @@ export function ExtensionsPage() {
               e.preventDefault();
               if (repoUrl.trim()) addRepo.mutate(repoUrl.trim());
             }}
-            style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+            className="ext-repo-form"
           >
             <input
+              className="ext-repo-input"
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
               placeholder={t("extensions.repoUrlPlaceholder")}
-              style={{ flex: 1, minWidth: 260 }}
             />
             <button type="submit" disabled={addRepo.isPending}>
               {t("extensions.add")}

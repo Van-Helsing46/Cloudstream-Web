@@ -135,7 +135,12 @@ export function SearchPage() {
 
       <div className="card-grid" style={{ marginTop: 16 }}>
         {results.map((item, i) => (
-          <MediaCard key={`${item.providerId}:${item.id}-${i}`} item={item} actions />
+          <MediaCard
+            key={`${item.providerId}:${item.id}-${i}`}
+            item={item}
+            actions
+            providerLabel={providerIds.length > 1 ? providerName(item.providerId) : undefined}
+          />
         ))}
       </div>
     </>
