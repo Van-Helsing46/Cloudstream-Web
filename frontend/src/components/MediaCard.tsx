@@ -10,15 +10,18 @@ export function MediaCard({
   item,
   horizontal = false,
   actions = false,
+  providerLabel,
 }: {
   item: SearchItem;
   horizontal?: boolean;
   actions?: boolean;
+  /** Shown as a small badge under the title — e.g. to tell apart same-title results from
+   * different providers (search results don't otherwise show where a card came from). */
+  providerLabel?: string;
 }) {
   const t = useT();
   const navigate = useNavigate();
   const { isInWatchlist, toggle } = useWatchlist();
-  const width = horizontal ? 260 : 150;
   const aspect = horizontal ? "16 / 9" : "2 / 3";
   const inWatchlist = actions && isInWatchlist(item.providerId, item.id);
 
@@ -44,8 +47,7 @@ export function MediaCard({
   return (
     <Link
       to={`/media/${item.providerId}?id=${encodeURIComponent(item.id)}`}
-      className="media-card"
-      style={{ width }}
+      className={horizontal ? "media-card media-card-landscape" : "media-card media-card-portrait"}
       title={item.title}
     >
       <div className="media-card-poster" style={{ aspectRatio: aspect }}>
@@ -80,7 +82,12 @@ export function MediaCard({
         )}
       </div>
       <div className="media-card-title">{item.title}</div>
-      {item.year != null && <div className="media-card-year">{item.year}</div>}
+      {(item.year != null || providerLabel) && (
+        <div className="media-card-meta">
+          {item.year != null && <span className="media-card-year">{item.year}</span>}
+          {providerLabel && <span className="media-card-provider">{providerLabel}</span>}
+        </div>
+      )}
     </Link>
   );
 }

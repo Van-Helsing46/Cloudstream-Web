@@ -7,6 +7,7 @@ import { LibraryPage } from "./pages/LibraryPage";
 import { LoginGate } from "./pages/LoginGate";
 import { ProfileGate } from "./pages/ProfileGate";
 import { TopBar } from "./components/TopBar";
+import { BottomNav } from "./components/BottomNav";
 import { useT } from "./i18n";
 
 export default function App() {
@@ -34,6 +35,7 @@ function Shell() {
           <Route path="*" element={<p className="muted">{t("notFound")}</p>} />
         </Routes>
       </main>
+      <BottomNav />
     </>
   );
 }

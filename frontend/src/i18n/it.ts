@@ -54,7 +54,7 @@ export const it = {
     resultsFor: "Risultati per «{query}»",
     resultCountOne: "{count} risultato",
     resultCountOther: "{count} risultati",
-    empty: "Usa la barra di ricerca in alto per trovare qualcosa da guardare.",
+    empty: "Usa la barra di ricerca per trovare qualcosa da guardare.",
   },
   detail: {
     loading: "Carico il dettaglio…",
@@ -66,6 +66,7 @@ export const it = {
     source: "Fonte:",
     sourceN: "Fonte {n}",
     season: "Stagione {n}",
+    episodeRange: "{start}–{end}",
     episodesHeading: "Episodi",
     episodeFallback: "Episodio {n}",
     badgeInProgress: "In corso",

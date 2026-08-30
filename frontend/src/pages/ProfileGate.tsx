@@ -193,6 +193,7 @@ export function ProfileGate({ children }: { children: ReactNode }) {
                 key={p.id}
                 className="profile-tile"
                 onClick={() => (manage ? openEditor(p) : select(p))}
+                aria-label={manage ? t("profile.editProfile") + ": " + p.name : p.name}
               >
                 <span className="profile-avatar" style={profileAvatarStyle(p)}>
                   <ProfileAvatar profile={p} />

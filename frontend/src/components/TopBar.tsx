@@ -1,19 +1,20 @@
 import { Link, NavLink } from "react-router-dom";
-import { useT, type TranslationKey } from "../i18n";
+import { useT } from "../i18n";
 import { useProfile } from "../pages/ProfileGate";
+import { useIsMobile } from "../hooks/useMediaQuery";
 import { SearchBox } from "./SearchBox";
 import { ProfileAvatar, profileAvatarStyle } from "./ProfileAvatar";
+import { NAV_ITEMS } from "./navItems";
 
-const NAV_ITEMS: { to: string; end: boolean; key: TranslationKey }[] = [
-  { to: "/", end: true, key: "nav.home" },
-  { to: "/library", end: false, key: "nav.library" },
-  { to: "/extensions", end: false, key: "nav.extensions" },
-];
-
-/** Sticky topbar: brand, primary nav, the always-present search box, and the profile switcher. */
+/**
+ * Sticky topbar. On desktop: brand, primary nav, the always-present search box, and the
+ * profile switcher. On mobile the nav and search box move to the bottom nav (see BottomNav),
+ * so only the brand and profile switcher remain.
+ */
 export function TopBar() {
   const t = useT();
   const { profile, switchProfile } = useProfile();
+  const isMobile = useIsMobile();
 
   return (
     <header className="topbar">
@@ -27,20 +28,24 @@ export function TopBar() {
         <span className="topbar-wordmark">{t("common.appName")}</span>
       </Link>
 
-      <nav className="topbar-nav">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.end}
-            className={({ isActive }) => (isActive ? "topbar-nav-link active" : "topbar-nav-link")}
-          >
-            {t(item.key)}
-          </NavLink>
-        ))}
-      </nav>
+      {!isMobile && (
+        <>
+          <nav className="topbar-nav">
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) => (isActive ? "topbar-nav-link active" : "topbar-nav-link")}
+              >
+                {t(item.key)}
+              </NavLink>
+            ))}
+          </nav>
 
-      <SearchBox />
+          <SearchBox />
+        </>
+      )}
 
       <button
         className="topbar-avatar"
