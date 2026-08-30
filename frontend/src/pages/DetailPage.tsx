@@ -7,7 +7,7 @@ import { Player, type ProgressReason } from "../components/Player";
 import type { Episode, HistoryEntry, StreamLink } from "../types";
 import { useT } from "../i18n";
 import { posterGradient } from "../lib/colors";
-import { episodeFilenameBase } from "../lib/filename";
+import { episodeFilenameBase, mediaSessionTitle } from "../lib/filename";
 import { sortEpisodes } from "../lib/episodes";
 import { useEpisodeLinks } from "../hooks/useEpisodeLinks";
 import { useWatchlist } from "../hooks/useWatchlist";
@@ -348,6 +348,11 @@ export function DetailPage() {
                   resumeAt={resumeAt}
                   onProgress={saveProgress}
                   onEnded={handlePlaybackEnded}
+                  mediaTitle={mediaSessionTitle(media.title, isMovie ? null : playing)}
+                  artworkUrl={
+                    (playing?.posterUrl && proxiedImageUrl(playing.posterUrl)) ||
+                    (media.posterUrl ? proxiedImageUrl(media.posterUrl) : undefined)
+                  }
                 />
               )}
               {loadingLinks && <p className="muted">{t("detail.resolvingSource")}</p>}
