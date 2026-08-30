@@ -1116,6 +1116,10 @@ input, select {
   .bottom-nav { display: flex; }
   .page { padding-bottom: calc(24px + 56px + env(safe-area-inset-bottom)); }
   .topbar { height: 56px; }
+  /* On desktop the searchbox's flex:1 + margin-left:auto pushes the avatar to the right edge.
+     It's hidden on mobile (moved into BottomNav), so nothing does that job anymore — without
+     this the avatar just sits next to the brand instead of at the far right. */
+  .topbar-avatar { margin-left: auto; }
   .searchbox-input, input, select, textarea { font-size: 16px; }
 
   .detail-body { margin-top: -60px; gap: 20px; }
