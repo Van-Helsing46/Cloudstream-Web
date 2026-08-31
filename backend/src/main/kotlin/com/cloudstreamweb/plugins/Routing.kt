@@ -51,6 +51,21 @@ import java.io.ByteArrayOutputStream
 @Serializable
 data class AddRepositoryRequest(val url: String)
 
+private const val MAX_PROVIDER_ERROR_LEN = 200
+
+/**
+ * A short, single-line summary of a provider-call failure, safe to forward to a client.
+ * Some Throwables carry a `message` meant for a JVM engineer, not a search result: a
+ * VerifyError from a badly dex→JVM-converted extension dumps its entire bytecode/stack-frame
+ * diagnostic (thousands of characters, hex included) into `message`. Truncate to the first
+ * non-blank line, capped at [MAX_PROVIDER_ERROR_LEN].
+ */
+private fun Throwable.shortMessage(): String {
+    val raw = (message ?: this::class.simpleName ?: "error").trim()
+    val firstLine = raw.lineSequence().firstOrNull { it.isNotBlank() } ?: raw
+    return if (firstLine.length > MAX_PROVIDER_ERROR_LEN) firstLine.take(MAX_PROVIDER_ERROR_LEN) + "…" else firstLine
+}
+
 /**
  * Maps a provider-call failure to a clean response instead of leaking the raw exception
  * class name (e.g. a bare "NullPointerException" from a scraper that got an unparseable page —
@@ -63,7 +78,7 @@ private suspend fun RoutingContext.respondProviderFailure(t: Throwable) {
     call.respond(
         HttpStatusCode.BadGateway,
         mapOf(
-            "error" to (raw ?: "provider request failed"),
+            "error" to (raw?.let { t.shortMessage() } ?: "provider request failed"),
             "code" to if (raw == null) "unresolved" else "provider",
         ),
     )
@@ -200,7 +215,7 @@ fun Application.configureRouting(
                         query = query,
                         results = outcomes.flatMap { (_, r) -> r.getOrDefault(emptyList()) },
                         errors = outcomes.mapNotNull { (id, r) ->
-                            r.exceptionOrNull()?.let { id to (it.message ?: it::class.simpleName ?: "error") }
+                            r.exceptionOrNull()?.let { id to it.shortMessage() }
                         }.toMap(),
                     ),
                 )
@@ -223,7 +238,7 @@ fun Application.configureRouting(
                         providerId = providerId,
                         page = page,
                         sections = result.getOrDefault(emptyList()),
-                        error = result.exceptionOrNull()?.let { it.message ?: it::class.simpleName ?: "error" },
+                        error = result.exceptionOrNull()?.shortMessage(),
                     ),
                 )
             }
