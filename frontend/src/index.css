@@ -263,6 +263,15 @@ a:hover { color: var(--link-hover); }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  margin-bottom: 12px;
+}
+/* align-items: center sizes the row to the tallest child's margin box, then centers every child
+   within that taller row — so a title's own bottom margin (rail-title, or a bare <h1>) inflates
+   the row instead of producing predictable space below it, and stacks with the margin-bottom
+   above once the row's real height is centering-compensated. .page-head owns that space instead. */
+.page-head .rail-title,
+.page-head h1 {
+  margin-bottom: 0;
 }
 
 /* Home hero */

@@ -123,6 +123,7 @@ class RecompilingExtensionRuntime(
     private fun download(forge: GitForge, branch: String, paths: List<String>, destDir: File): List<File> {
         val written = mutableListOf<File>()
         var pkg: String? = null
+        var buildConfigPkg: String? = null
         val buildConfigFields = mutableSetOf<String>()
         for (path in paths) {
             val body = get(forge.rawUrl(branch, path)) ?: continue
@@ -141,17 +142,24 @@ class RecompilingExtensionRuntime(
             // Collect the actual field names used (e.g. TMDB_API, TMDB_API3 — they vary per repo);
             // a fixed-field BuildConfig left variants unresolved and failed the whole compile.
             Regex("\\bBuildConfig\\.(\\w+)").findAll(body).mapTo(buildConfigFields) { it.groupValues[1] }
+            // BuildConfig doesn't always live in the same package as the files that reference it
+            // (e.g. a shared `com.foo.BuildConfig` used by providers under `com.foo.bar`) — an
+            // explicit import pins its real package; without one, assume same-package (below).
+            if (buildConfigPkg == null) {
+                buildConfigPkg = Regex("(?m)^\\s*import\\s+([\\w.]+)\\.BuildConfig\\b").find(body)?.groupValues?.get(1)
+            }
         }
         // Synthesize BuildConfig if the sources use it (the Android build generated it from gradle).
         // Every referenced field is emitted as a String constant seeded with the TMDB key — the only
         // secret these repos inject this way; a wrong guess just degrades that provider's TMDB rails.
-        if (buildConfigFields.isNotEmpty() && pkg != null) {
-            val pkgDir = File(destDir, pkg.replace('.', '/')).also { it.mkdirs() }
+        val effectivePkg = buildConfigPkg ?: pkg
+        if (buildConfigFields.isNotEmpty() && effectivePkg != null) {
+            val pkgDir = File(destDir, effectivePkg.replace('.', '/')).also { it.mkdirs() }
             val buildConfig = File(pkgDir, "BuildConfig.kt")
             val fields = buildConfigFields.joinToString("\n") {
                 "    const val $it: String = \"${tmdbApiKey.replace("\"", "")}\""
             }
-            buildConfig.writeText("package $pkg\nobject BuildConfig {\n$fields\n}\n")
+            buildConfig.writeText("package $effectivePkg\nobject BuildConfig {\n$fields\n}\n")
             written += buildConfig
         }
         return written
@@ -235,15 +243,26 @@ class RecompilingExtensionRuntime(
 
     /**
      * True if the file needs the Android SDK (androidx, or android.* other than the classes we
-     * stub — `android.util.Log`/`Base64`, see `src/main/java/android/util/`). The lookahead must
-     * name each stubbed class explicitly: earlier it excluded all of `android.util.*`, so a file
-     * importing an unstubbed one (e.g. `android.util.Base64`, before it was stubbed) still went to
-     * the compiler and failed with "Unresolved reference" instead of being skipped like the truly
-     * Android-coupled files are.
+     * stub — `android.util.Log`/`Base64`, `android.content.Context`/`SharedPreferences`, see
+     * `src/main/java/android/`). The lookahead must name each stubbed class explicitly: earlier
+     * it excluded all of `android.util.*`, so a file importing an unstubbed one (e.g.
+     * `android.util.Base64`, before it was stubbed) still went to the compiler and failed with
+     * "Unresolved reference" instead of being skipped like the truly Android-coupled files are.
+     *
+     * Also excludes the app-plugin entry point itself (`@CloudstreamPlugin` / `Plugin` /
+     * `registerMainAPI`, from `com.lagradost.cloudstream3.plugins`): that's the Android app's
+     * plugin-loading machinery, orthogonal to a `MainAPI` provider class and not something we
+     * need — we find the provider directly by reflection instead of calling registerMainAPI().
+     * A repo whose default-branch file just imports `android.content.Context` for an unused
+     * companion field (common) must still reach the compiler, hence the separate check.
      */
     private fun isAndroidCoupled(body: String): Boolean =
         Regex("(?m)^\\s*import\\s+androidx\\.").containsMatchIn(body) ||
-            Regex("(?m)^\\s*import\\s+android\\.(?!util\\.(Log|Base64)\\b)").containsMatchIn(body)
+            Regex("(?m)^\\s*import\\s+com\\.lagradost\\.cloudstream3\\.plugins\\.").containsMatchIn(body) ||
+            Regex(
+                "(?m)^\\s*import\\s+android\\." +
+                    "(?!util\\.(Log|Base64)\\b)(?!content\\.(Context|SharedPreferences)\\b)",
+            ).containsMatchIn(body)
 
     private fun sanitize(name: String) = name.replace(Regex("[^A-Za-z0-9._-]"), "_")
 }

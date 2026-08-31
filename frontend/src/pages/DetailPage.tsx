@@ -284,6 +284,13 @@ export function DetailPage() {
     selectedSeason ?? (progressSeasonValid ? progressSeasonKey! : seasons[0]?.[0] ?? 0);
   const currentEpisodes = seasons.find(([key]) => key === currentSeasonKey)?.[1] ?? [];
 
+  // mediaProgress is a network round-trip that hasn't necessarily resolved yet on first
+  // render, so until then currentSeasonKey falls back to season 1 — on a fast connection
+  // that's an imperceptible flash before it corrects to the season being watched, but on a
+  // slower one (e.g. mobile) it reads as "always opens on season 1". Hide the season
+  // chips/episode list rather than show that wrong season while we don't yet know better.
+  const seasonPending = seasons.length > 1 && selectedSeason == null && !mediaProgress.isFetched;
+
   const episodeRanges =
     currentEpisodes.length > EPISODE_RANGE_SIZE
       ? Array.from({ length: Math.ceil(currentEpisodes.length / EPISODE_RANGE_SIZE) }, (_, i) => ({
@@ -454,76 +461,82 @@ export function DetailPage() {
 
         {!isMovie && (
           <div className="detail-episodes">
-            {seasons.length > 1 && (
-              <div className="chip-row">
-                {seasons.map(([season]) => (
-                  <button
-                    key={season}
-                    className={season === currentSeasonKey ? "chip chip-active" : "chip"}
-                    onClick={() => setSelectedSeason(season)}
-                  >
-                    {t("detail.season", { n: season })}
-                  </button>
-                ))}
-              </div>
-            )}
-            {episodeRanges && (
-              <div className="chip-row">
-                {episodeRanges.map((range, i) => (
-                  <button
-                    key={i}
-                    className={i === selectedRange ? "chip chip-active" : "chip"}
-                    onClick={() => setSelectedRange(i)}
-                  >
-                    {t("detail.episodeRange", { start: range.start + 1, end: range.end })}
-                  </button>
-                ))}
-              </div>
-            )}
-            <div className="episode-rows">
-              {visibleEpisodes.map((ep, i) => {
-                const absoluteIndex = (activeRange?.start ?? 0) + i;
-                const active = playing === ep;
-                const prog = progressByEpisode.get(ep.id);
-                const pct = prog?.durationSeconds
-                  ? Math.min(100, Math.round((prog.positionSeconds / prog.durationSeconds) * 100))
-                  : 0;
-                const badge = pct >= 90 ? t("detail.badgeWatched") : pct > 0 ? t("detail.badgeInProgress") : "";
-                return (
-                  <div key={`${ep.id}-${absoluteIndex}`} className={active ? "episode-row active" : "episode-row"}>
-                    <button type="button" className="episode-main" onClick={() => play(ep)}>
-                      <div className="episode-thumb">
-                        {ep.posterUrl ? (
-                          <img src={proxiedImageUrl(ep.posterUrl)} alt="" loading="lazy" />
-                        ) : (
-                          <div className="episode-thumb-play" aria-hidden="true">
-                            ▶
-                          </div>
-                        )}
-                        <div className="episode-bar">
-                          <span className="episode-bar-fill" style={{ width: `${pct}%` }} />
-                        </div>
-                      </div>
-                      <div className="episode-info">
-                        <span className="episode-title">
-                          {ep.episode != null ? `${ep.episode}. ` : ""}
-                          {ep.name ?? t("detail.episodeFallback", { n: absoluteIndex + 1 })}
-                        </span>
-                        {ep.description && <p className="episode-desc">{ep.description}</p>}
-                      </div>
-                      {badge && <span className="episode-badge">{badge}</span>}
-                    </button>
-                    <EpisodeActions
-                      providerId={providerId}
-                      episode={ep}
-                      filenameBase={episodeFilenameBase(media.title, ep)}
-                      resolveLinks={resolveEpisodeLinks}
-                      linksLoading={linksLoadingId === ep.id}
-                    />
+            {seasonPending ? (
+              <p className="muted">{t("detail.loading")}</p>
+            ) : (
+              <>
+                {seasons.length > 1 && (
+                  <div className="chip-row">
+                    {seasons.map(([season]) => (
+                      <button
+                        key={season}
+                        className={season === currentSeasonKey ? "chip chip-active" : "chip"}
+                        onClick={() => setSelectedSeason(season)}
+                      >
+                        {t("detail.season", { n: season })}
+                      </button>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
+                )}
+                {episodeRanges && (
+                  <div className="chip-row">
+                    {episodeRanges.map((range, i) => (
+                      <button
+                        key={i}
+                        className={i === selectedRange ? "chip chip-active" : "chip"}
+                        onClick={() => setSelectedRange(i)}
+                      >
+                        {t("detail.episodeRange", { start: range.start + 1, end: range.end })}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="episode-rows">
+                  {visibleEpisodes.map((ep, i) => {
+                    const absoluteIndex = (activeRange?.start ?? 0) + i;
+                    const active = playing === ep;
+                    const prog = progressByEpisode.get(ep.id);
+                    const pct = prog?.durationSeconds
+                      ? Math.min(100, Math.round((prog.positionSeconds / prog.durationSeconds) * 100))
+                      : 0;
+                    const badge = pct >= 90 ? t("detail.badgeWatched") : pct > 0 ? t("detail.badgeInProgress") : "";
+                    return (
+                      <div key={`${ep.id}-${absoluteIndex}`} className={active ? "episode-row active" : "episode-row"}>
+                        <button type="button" className="episode-main" onClick={() => play(ep)}>
+                          <div className="episode-thumb">
+                            {ep.posterUrl ? (
+                              <img src={proxiedImageUrl(ep.posterUrl)} alt="" loading="lazy" />
+                            ) : (
+                              <div className="episode-thumb-play" aria-hidden="true">
+                                ▶
+                              </div>
+                            )}
+                            <div className="episode-bar">
+                              <span className="episode-bar-fill" style={{ width: `${pct}%` }} />
+                            </div>
+                          </div>
+                          <div className="episode-info">
+                            <span className="episode-title">
+                              {ep.episode != null ? `${ep.episode}. ` : ""}
+                              {ep.name ?? t("detail.episodeFallback", { n: absoluteIndex + 1 })}
+                            </span>
+                            {ep.description && <p className="episode-desc">{ep.description}</p>}
+                          </div>
+                          {badge && <span className="episode-badge">{badge}</span>}
+                        </button>
+                        <EpisodeActions
+                          providerId={providerId}
+                          episode={ep}
+                          filenameBase={episodeFilenameBase(media.title, ep)}
+                          resolveLinks={resolveEpisodeLinks}
+                          linksLoading={linksLoadingId === ep.id}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
