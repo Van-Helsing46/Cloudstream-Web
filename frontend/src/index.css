@@ -849,7 +849,11 @@ a:hover { color: var(--link-hover); }
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
-.ext-grid { display: flex; flex-direction: column; gap: 10px; }
+/* .page-head centers its children on the cross axis, so a flex-item title's own bottom margin
+   (e.g. .rail-title) doesn't reliably produce visible space below the row — the shorter "update
+   all" button sits centered within the taller margin box instead of at its bottom edge. Give the
+   catalog grid its own top margin rather than relying on that. */
+.ext-grid { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .ext-row {
   display: flex;
   gap: 14px;
