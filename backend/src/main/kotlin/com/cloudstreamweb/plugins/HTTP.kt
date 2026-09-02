@@ -8,7 +8,12 @@ import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.plugins.cors.routing.CORS
 import io.ktor.server.plugins.statuspages.StatusPages
+import io.ktor.server.request.httpMethod
+import io.ktor.server.request.uri
 import io.ktor.server.response.respond
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("HTTP")
 
 fun Application.configureHTTP(config: AppConfig) {
     install(CORS) {
@@ -30,7 +35,11 @@ fun Application.configureHTTP(config: AppConfig) {
     }
 
     install(StatusPages) {
+        // This is the only place an uncaught exception from any route ends up — without logging
+        // it here, a 500 leaves zero trace beyond the access-log line (status + timing, no
+        // cause), which makes an intermittent failure unreproducible after the fact.
         exception<Throwable> { call, cause ->
+            log.warn("Unhandled exception on {} {}", call.request.httpMethod.value, call.request.uri, cause)
             call.respond(
                 HttpStatusCode.InternalServerError,
                 mapOf("error" to (cause.message ?: "Internal error")),

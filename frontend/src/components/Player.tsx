@@ -78,10 +78,42 @@ export const Player = forwardRef<HTMLVideoElement, PlayerProps>(function Player(
     if (!video) return;
 
     let hls: Hls | undefined;
+    let retryTimer: number | undefined;
     if (link.isM3u8 && Hls.isSupported()) {
       hls = new Hls();
       hls.loadSource(src);
       hls.attachMedia(video);
+
+      // hls.js does not retry a fatal error on its own — left alone, a single dropped segment
+      // (a transient upstream/proxy hiccup) permanently stalls playback until the page is
+      // reloaded. Recover the two recoverable fatal error types with a capped, backoff retry;
+      // give up only after repeated failures in a short window (a real network/media error
+      // resets the count once loading actually resumes, so a later unrelated blip gets its own
+      // fresh attempts instead of inheriting an exhausted counter from hours earlier).
+      const MAX_RETRIES = 4;
+      let retries = 0;
+      hls.on(Hls.Events.FRAG_LOADED, () => {
+        retries = 0;
+      });
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        if (retries >= MAX_RETRIES) {
+          hls?.destroy();
+          return;
+        }
+        const delayMs = 1000 * 2 ** retries;
+        retries += 1;
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            retryTimer = window.setTimeout(() => hls?.startLoad(), delayMs);
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            retryTimer = window.setTimeout(() => hls?.recoverMediaError(), delayMs);
+            break;
+          default:
+            hls?.destroy();
+        }
+      });
     } else {
       video.src = src;
     }
@@ -114,6 +146,7 @@ export const Player = forwardRef<HTMLVideoElement, PlayerProps>(function Player(
 
     return () => {
       window.clearInterval(interval);
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       video.removeEventListener("loadedmetadata", doResume);
       video.removeEventListener("pause", onPause);
       video.removeEventListener("ended", handleEnded);
