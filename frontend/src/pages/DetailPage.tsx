@@ -180,6 +180,10 @@ export function DetailPage() {
     const idx = flatEpisodes.findIndex((e) => e.id === latestProgressEpisode.id);
     return idx >= 0 && idx < flatEpisodes.length - 1 ? flatEpisodes[idx + 1] : null;
   }, [latestProgressEntry, latestIsComplete, latestProgressEpisode, flatEpisodes]);
+  // True when continueEpisode IS the saved (unfinished) entry itself — as opposed to a
+  // never-started "up next" episode advanced past a finished one — so the button can read
+  // "Resume SxEy" only when there is actually something to resume, "Play SxEy" otherwise.
+  const continueHasSavedProgress = !!latestProgressEntry && !latestIsComplete;
 
   // ?play=1 (from a search-result "play" button): auto-open the player once the
   // detail + progress are ready, then drop the param so a refresh doesn't replay it.
@@ -347,7 +351,7 @@ export function DetailPage() {
 
   const playTarget = continueEpisode ?? media.episodes[0];
   const playLabel = continueEpisode
-    ? `${t("detail.resume")}${
+    ? `${t(continueHasSavedProgress ? "detail.resume" : "detail.play")}${
         continueEpisode.season != null && continueEpisode.episode != null
           ? ` S${continueEpisode.season}E${continueEpisode.episode}`
           : ""
