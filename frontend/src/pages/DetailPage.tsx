@@ -16,6 +16,10 @@ import { useWatchlist } from "../hooks/useWatchlist";
 // screen; above this size the episodes are split into picker chips instead of one long list.
 const EPISODE_RANGE_SIZE = 50;
 
+// Fraction watched above which an episode counts as "finished" rather than "in progress" —
+// used both for the episode-row badge and for deciding the continue-watching target.
+const COMPLETION_THRESHOLD = 0.9;
+
 /** Detail page: backdrop hero, poster/metadata, season pills, episode rows → play via proxy. */
 export function DetailPage() {
   const t = useT();
@@ -138,10 +142,44 @@ export function DetailPage() {
     for (const e of mediaProgress.data ?? []) m.set(e.episodeId, e);
     return m;
   }, [mediaProgress.data]);
-  // Most recent unfinished entry = "Resume" candidate (history is already recency-ordered).
-  const resumeEntry = (mediaProgress.data ?? []).find(
-    (e) => !e.durationSeconds || e.positionSeconds / e.durationSeconds < 0.9,
+
+  // Episodes grouped by season (movies have a single "episode"). Computed here (rather than
+  // further down, where they're also used for the season chips) because the continue-watching
+  // target below needs the flat, globally-ordered list to find "the episode after this one".
+  const flatEpisodes = useMemo(() => sortEpisodes(detail.data?.episodes ?? []), [detail.data]);
+  const seasons = useMemo(() => {
+    const groups = new Map<number, Episode[]>();
+    for (const ep of flatEpisodes) {
+      const key = ep.season ?? 0;
+      (groups.get(key) ?? groups.set(key, []).get(key)!).push(ep);
+    }
+    return [...groups.entries()].sort((a, b) => a[0] - b[0]);
+  }, [flatEpisodes]);
+
+  // "Continue watching" target. `mediaProgress.data` is recency-ordered, so its first entry is
+  // whatever the user watched most recently — normally that's the target, UNLESS it's
+  // essentially finished (credits-rolling), in which case the target advances to the next
+  // episode overall (crossing into the next season if it was a finale). This intentionally
+  // does NOT fall back to the oldest unfinished episode: watching S3E14 to the end while an
+  // older S2E3 sits half-watched should offer S3E15/S4E1, not resurface S2E3 — the previous
+  // logic did exactly that by scanning for the first <90%-complete entry regardless of recency.
+  // Deliberately rewatching that older episode (making it the most recent entry) is still
+  // honored: an unfinished *latest* entry is always the target, whatever episode it is.
+  const latestProgressEntry = mediaProgress.data?.[0] ?? null;
+  const latestProgressEpisode = useMemo(
+    () => (latestProgressEntry ? flatEpisodes.find((e) => e.id === latestProgressEntry.episodeId) ?? null : null),
+    [latestProgressEntry, flatEpisodes],
   );
+  const latestIsComplete =
+    !!latestProgressEntry?.durationSeconds &&
+    latestProgressEntry.positionSeconds / latestProgressEntry.durationSeconds >= COMPLETION_THRESHOLD;
+  const continueEpisode = useMemo(() => {
+    if (!latestProgressEntry) return null;
+    if (!latestIsComplete) return latestProgressEpisode;
+    if (!latestProgressEpisode) return null;
+    const idx = flatEpisodes.findIndex((e) => e.id === latestProgressEpisode.id);
+    return idx >= 0 && idx < flatEpisodes.length - 1 ? flatEpisodes[idx + 1] : null;
+  }, [latestProgressEntry, latestIsComplete, latestProgressEpisode, flatEpisodes]);
 
   // ?play=1 (from a search-result "play" button): auto-open the player once the
   // detail + progress are ready, then drop the param so a refresh doesn't replay it.
@@ -155,14 +193,12 @@ export function DetailPage() {
     if (!detail.data || !mediaProgress.isFetched) return;
     autoplayDone.current = true;
     const media = detail.data;
-    const target = resumeEntry
-      ? media.episodes.find((e) => e.id === resumeEntry.episodeId) ?? media.episodes[0]
-      : media.episodes[0];
+    const target = continueEpisode ?? media.episodes[0];
     if (target) void play(target);
     const next = new URLSearchParams(params);
     next.delete("play");
     setSearchParams(next, { replace: true });
-  }, [params, detail.data, mediaProgress.isFetched, resumeEntry, setSearchParams]);
+  }, [params, detail.data, mediaProgress.isFetched, continueEpisode, setSearchParams]);
 
   async function toggleWatchlist() {
     const media = detail.data;
@@ -177,25 +213,13 @@ export function DetailPage() {
     });
   }
 
-  // Episodes grouped by season (movies have a single "episode").
-  const flatEpisodes = useMemo(() => sortEpisodes(detail.data?.episodes ?? []), [detail.data]);
-  const seasons = useMemo(() => {
-    const groups = new Map<number, Episode[]>();
-    for (const ep of flatEpisodes) {
-      const key = ep.season ?? 0;
-      (groups.get(key) ?? groups.set(key, []).get(key)!).push(ep);
-    }
-    return [...groups.entries()].sort((a, b) => a[0] - b[0]);
-  }, [flatEpisodes]);
-
-  // Season the user is actually watching (resume entry, or else the most recent progress
-  // entry), so the detail page opens on that season instead of always season 1.
+  // Season the user is actually watching — the continue-watching target if there is one, else
+  // whatever the most recent progress entry belongs to — so the detail page opens on that
+  // season instead of always season 1.
   const progressSeasonKey = useMemo(() => {
-    const entry = resumeEntry ?? mediaProgress.data?.[0];
-    if (!entry) return null;
-    const season = flatEpisodes.find((e) => e.id === entry.episodeId)?.season ?? entry.season;
-    return season ?? null;
-  }, [resumeEntry, mediaProgress.data, flatEpisodes]);
+    const ep = continueEpisode ?? latestProgressEpisode;
+    return ep?.season ?? latestProgressEntry?.season ?? null;
+  }, [continueEpisode, latestProgressEpisode, latestProgressEntry]);
 
   function handlePlaybackEnded() {
     const ep = playing;
@@ -308,7 +332,7 @@ export function DetailPage() {
       setSelectedRange(0);
       return;
     }
-    const resumeIdx = resumeEntry ? currentEpisodes.findIndex((e) => e.id === resumeEntry.episodeId) : -1;
+    const resumeIdx = continueEpisode ? currentEpisodes.findIndex((e) => e.id === continueEpisode.id) : -1;
     setSelectedRange(resumeIdx >= 0 ? Math.floor(resumeIdx / EPISODE_RANGE_SIZE) : 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSeasonKey, providerId, id]);
@@ -321,13 +345,11 @@ export function DetailPage() {
   const isMovie = media.episodes.length <= 1;
   const providerLabel = providers.data?.find((p) => p.id === media.providerId)?.name ?? media.providerId;
 
-  const playTarget = resumeEntry
-    ? media.episodes.find((e) => e.id === resumeEntry.episodeId) ?? media.episodes[0]
-    : media.episodes[0];
-  const playLabel = resumeEntry
+  const playTarget = continueEpisode ?? media.episodes[0];
+  const playLabel = continueEpisode
     ? `${t("detail.resume")}${
-        resumeEntry.season != null && resumeEntry.episode != null
-          ? ` S${resumeEntry.season}E${resumeEntry.episode}`
+        continueEpisode.season != null && continueEpisode.episode != null
+          ? ` S${continueEpisode.season}E${continueEpisode.episode}`
           : ""
       }`
     : t("detail.play");
@@ -499,7 +521,12 @@ export function DetailPage() {
                     const pct = prog?.durationSeconds
                       ? Math.min(100, Math.round((prog.positionSeconds / prog.durationSeconds) * 100))
                       : 0;
-                    const badge = pct >= 90 ? t("detail.badgeWatched") : pct > 0 ? t("detail.badgeInProgress") : "";
+                    const badge =
+                      pct >= COMPLETION_THRESHOLD * 100
+                        ? t("detail.badgeWatched")
+                        : pct > 0
+                          ? t("detail.badgeInProgress")
+                          : "";
                     return (
                       <div key={`${ep.id}-${absoluteIndex}`} className={active ? "episode-row active" : "episode-row"}>
                         <button type="button" className="episode-main" onClick={() => play(ep)}>
